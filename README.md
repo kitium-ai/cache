@@ -1,6 +1,6 @@
 # @kitiumai/cache
 
-Enterprise-ready Redis abstraction layer with advanced caching capabilities. Provides connection pooling, intelligent cache key management, flexible TTL configuration, and multiple invalidation strategies.
+Enterprise-ready Redis abstraction layer with advanced caching capabilities. Provides connection pooling, intelligent cache key management, flexible TTL configuration, and multiple invalidation strategies plus built-in resiliency, observability, and multi-tier caching.
 
 ## Features
 
@@ -17,6 +17,7 @@ Enterprise-ready Redis abstraction layer with advanced caching capabilities. Pro
 - Efficient key management with pattern matching
 - Batch operations for bulk cache management
 - Event-driven invalidation
+- Hot-path in-memory tier with negative caching and stampede protection
 
 🔑 **Smart Key Management**
 
@@ -39,6 +40,19 @@ Enterprise-ready Redis abstraction layer with advanced caching capabilities. Pro
 - Manual invalidation
 - Event-driven invalidation with listeners
 - TTL-based automatic expiration
+
+🛡️ **Resilience & Security**
+
+- Retry/backoff and command timeouts for Redis operations
+- Optional encryption + compression codecs
+- Health checks with periodic pool validation and tag reconciliation
+- Request coalescing to avoid thundering herd scenarios
+
+📈 **Observability & Governance**
+
+- In-memory and persisted stats with hit-rate tracking
+- Instrumentation hooks for metrics/logging/tracing
+- SCAN-based discovery to avoid blocking Redis instances
 
 ## Installation
 
@@ -107,6 +121,33 @@ const product = await cache.getOrSet(
 
 // Disconnect
 await cache.disconnect();
+```
+
+### Resilient, Observable, Multi-tier Setup
+
+```typescript
+import { CacheManager } from '@kitiumai/cache';
+
+const cache = new CacheManager(
+  { host: 'localhost', port: 6379, retryPolicy: { maxAttempts: 3, backoffMs: 50, jitterMs: 25 }, commandTimeoutMs: 2000 },
+  { maxConnections: 20, minConnections: 4, idleTimeoutMs: 30000, acquireTimeoutMs: 4000, validationIntervalMs: 10000 },
+  { prefix: 'myapp', namespace: 'cache' },
+  { defaultTTL: 3600, maxTTL: 86400, minTTL: 30 },
+  {
+    enabled: true,
+    maxItems: 1000,
+    ttlSeconds: 600,
+    negativeTtlSeconds: 30,
+  },
+  {
+    onCommand: (cmd, latency, success) => metrics.histogram('cache_command_latency_ms', { cmd, success }).record(latency),
+    onError: (error) => logger.error({ err: error }, 'cache command failed'),
+    onStats: (stats) => logger.info({ stats }, 'cache stats updated'),
+  }
+);
+
+await cache.connect();
+await cache.set('user:123', sensitivePayload, { compress: true, encrypt: true, tags: ['user', 'profile'] });
 ```
 
 ## Core Concepts
