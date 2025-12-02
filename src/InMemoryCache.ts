@@ -16,9 +16,13 @@ export class InMemoryCache {
   }
 
   get<T>(key: string): T | null | undefined {
-    if (!this.config.enabled) return undefined;
+    if (!this.config.enabled) {
+      return undefined;
+    }
     const entry = this.cache.get(key);
-    if (!entry) return undefined;
+    if (!entry) {
+      return undefined;
+    }
     if (Date.now() > entry.expiresAt) {
       this.cache.delete(key);
       return undefined;
@@ -30,8 +34,13 @@ export class InMemoryCache {
   }
 
   set<T>(key: string, value: T | null, ttlSeconds?: number, isNegative = false): void {
-    if (!this.config.enabled) return;
-    const ttl = ttlSeconds ?? (isNegative ? this.config.negativeTtlSeconds : this.config.ttlSeconds) ?? this.config.ttlSeconds;
+    if (!this.config.enabled) {
+      return;
+    }
+    const ttl =
+      ttlSeconds ??
+      (isNegative ? this.config.negativeTtlSeconds : this.config.ttlSeconds) ??
+      this.config.ttlSeconds;
     const expiresAt = Date.now() + ttl * 1000;
     const serialized = value === null ? 'null' : JSON.stringify(value);
     const size = serialized ? Buffer.byteLength(serialized) : 0;
@@ -51,19 +60,24 @@ export class InMemoryCache {
   private evictIfNeeded(): void {
     while (this.cache.size > this.config.maxItems || this.isOverSizeLimit()) {
       const firstKey = this.cache.keys().next().value;
-      if (!firstKey) break;
+      if (!firstKey) {
+        break;
+      }
       this.cache.delete(firstKey);
     }
   }
 
   private isOverSizeLimit(): boolean {
-    if (!this.config.maxSizeBytes) return false;
+    if (!this.config.maxSizeBytes) {
+      return false;
+    }
     let total = 0;
     for (const entry of this.cache.values()) {
       total += entry.size;
-      if (total > this.config.maxSizeBytes) return true;
+      if (total > this.config.maxSizeBytes) {
+        return true;
+      }
     }
     return total > (this.config.maxSizeBytes ?? Number.MAX_SAFE_INTEGER);
   }
 }
-

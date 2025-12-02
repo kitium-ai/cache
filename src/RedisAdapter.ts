@@ -5,7 +5,13 @@
 
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'crypto';
 import { gzipSync, gunzipSync } from 'zlib';
-import { CacheOptions, CacheStats, ICacheAdapter, InstrumentationHooks, RedisConfig } from './types';
+import {
+  CacheOptions,
+  CacheStats,
+  ICacheAdapter,
+  InstrumentationHooks,
+  RedisConfig,
+} from './types';
 import { RedisConnectionPool } from './RedisConnectionPool';
 import { CacheKeyManager } from './CacheKeyManager';
 
@@ -37,15 +43,19 @@ export class RedisAdapter implements ICacheAdapter {
     instrumentation?: InstrumentationHooks
   ) {
     this.redisConfig = redisConfig;
-    this.commandTimeoutMs = redisConfig.commandTimeoutMs;
+    if (redisConfig.commandTimeoutMs !== undefined) {
+      this.commandTimeoutMs = redisConfig.commandTimeoutMs;
+    }
     this.pool = new RedisConnectionPool(redisConfig, poolConfig);
     this.keyManager = keyManager;
     this.defaultTTL = defaultTTL;
-    this.instrumentation = instrumentation;
+    if (instrumentation !== undefined) {
+      this.instrumentation = instrumentation;
+    }
     this.statsPersistKey = this.keyManager.buildNamespacedKey('meta', 'stats');
-    this.encryptionKey = redisConfig.encryptionKey
-      ? createHash('sha256').update(redisConfig.encryptionKey).digest()
-      : undefined;
+    if (redisConfig.encryptionKey !== undefined) {
+      this.encryptionKey = createHash('sha256').update(redisConfig.encryptionKey).digest();
+    }
   }
 
   async connect(): Promise<void> {
@@ -87,7 +97,7 @@ export class RedisAdapter implements ICacheAdapter {
     try {
       const client = await this.pool.getConnection();
       try {
-        const result = await this.runCommand(client, 'ping', () => client.ping());
+        const result = await this.runCommand('ping', () => client.ping());
         return result === 'PONG';
       } finally {
         this.pool.releaseConnection(client);
@@ -105,7 +115,7 @@ export class RedisAdapter implements ICacheAdapter {
 
     const client = await this.pool.getConnection();
     try {
-      const value = await this.runCommand(client, 'get', () => client.get(key));
+      const value = await this.runCommand('get', () => client.get(key));
 
       if (value) {
         this.stats.hits++;
@@ -136,9 +146,9 @@ export class RedisAdapter implements ICacheAdapter {
       const ttl = options?.ttl ?? this.defaultTTL;
 
       if (ttl > 0) {
-        await this.runCommand(client, 'setEx', () => client.setEx(key, ttl, serialized));
+        await this.runCommand('setEx', () => client.setEx(key, ttl, serialized));
       } else {
-        await this.runCommand(client, 'set', () => client.set(key, serialized));
+        await this.runCommand('set', () => client.set(key, serialized));
       }
 
       // Register key with tags if provided
@@ -148,10 +158,10 @@ export class RedisAdapter implements ICacheAdapter {
         // Store tags in Redis for persistence
         for (const tag of options.tags) {
           const tagKey = `tag:${tag}`;
-          await this.runCommand(client, 'sAdd', () => client.sAdd(tagKey, key));
+          await this.runCommand('sAdd', () => client.sAdd(tagKey, key));
           // Set TTL on tag sets
           if (ttl > 0) {
-            await this.runCommand(client, 'expire', () => client.expire(tagKey, ttl));
+            await this.runCommand('expire', () => client.expire(tagKey, ttl));
           }
         }
       }
@@ -170,7 +180,7 @@ export class RedisAdapter implements ICacheAdapter {
   async delete(key: string): Promise<boolean> {
     const client = await this.pool.getConnection();
     try {
-      const result = await this.runCommand(client, 'del', () => client.del(key));
+      const result = await this.runCommand('del', () => client.del(key));
       if (result > 0) {
         this.keyManager.unregisterKey(key);
         this.stats.itemCount--;
@@ -191,7 +201,7 @@ export class RedisAdapter implements ICacheAdapter {
   async exists(key: string): Promise<boolean> {
     const client = await this.pool.getConnection();
     try {
-      const result = await this.runCommand(client, 'exists', () => client.exists(key));
+      const result = await this.runCommand('exists', () => client.exists(key));
       return result > 0;
     } catch (error) {
       throw new Error(
@@ -210,7 +220,7 @@ export class RedisAdapter implements ICacheAdapter {
       const keys = await this.scanKeys(client, pattern);
 
       if (keys.length > 0) {
-        await this.runCommand(client, 'del', () => client.del(keys));
+        await this.runCommand('del', () => client.del(keys));
         this.stats.evictions += keys.length;
         this.stats.itemCount = 0;
       }
@@ -250,7 +260,7 @@ export class RedisAdapter implements ICacheAdapter {
       const keys = await this.scanKeys(client, searchPattern);
 
       if (keys.length > 0) {
-        await this.runCommand(client, 'del', () => client.del(keys));
+        await this.runCommand('del', () => client.del(keys));
         this.stats.evictions += keys.length;
         this.stats.itemCount -= keys.length;
         this.updateStats();
@@ -273,14 +283,14 @@ export class RedisAdapter implements ICacheAdapter {
 
       for (const tag of tags) {
         const tagKey = `tag:${tag}`;
-        const keys = await this.runCommand(client, 'sMembers', () => client.sMembers(tagKey));
+        const keys = await this.runCommand('sMembers', () => client.sMembers(tagKey));
         keys.forEach((key) => keysToDelete.add(key));
-        await this.runCommand(client, 'del', () => client.del(tagKey));
+        await this.runCommand('del', () => client.del(tagKey));
       }
 
       if (keysToDelete.size > 0) {
         const keyArray = Array.from(keysToDelete);
-        await this.runCommand(client, 'del', () => client.del(keyArray));
+        await this.runCommand('del', () => client.del(keyArray));
         this.stats.evictions += keyArray.length;
         this.stats.itemCount -= keyArray.length;
         this.updateStats();
@@ -314,12 +324,14 @@ export class RedisAdapter implements ICacheAdapter {
   }
 
   private async persistStats(): Promise<void> {
-    if (!this.isConnected) return;
+    if (!this.isConnected) {
+      return;
+    }
     try {
       const client = await this.pool.getConnection();
-      await this.runCommand(client, 'set', () =>
+      await this.runCommand('set', () =>
         client.set(this.statsPersistKey, JSON.stringify(this.stats), {
-          EX: 600,
+          EX: 600, // eslint-disable-line @typescript-eslint/naming-convention
         })
       );
     } catch (error) {
@@ -327,11 +339,7 @@ export class RedisAdapter implements ICacheAdapter {
     }
   }
 
-  private async runCommand<T>(
-    client: any,
-    command: string,
-    fn: () => Promise<T>
-  ): Promise<T> {
+  private async runCommand<T>(command: string, fn: () => Promise<T>): Promise<T> {
     const start = Date.now();
     try {
       const result = await this.executeWithRetry(() => this.withTimeout(fn()));
@@ -435,21 +443,24 @@ export class RedisAdapter implements ICacheAdapter {
   private async reconcileTags(): Promise<void> {
     const client = await this.pool.getConnection();
     try {
-      let cursor = '0';
+      let cursor = 0;
       do {
-        const [nextCursor, tags] = await this.runCommand(client, 'scan', () =>
+        /* eslint-disable @typescript-eslint/naming-convention */
+        const result = (await this.runCommand('scan', () =>
           client.scan(cursor, {
             MATCH: 'tag:*',
             COUNT: 100,
           })
-        );
-        cursor = nextCursor;
+        )) as { cursor: number; keys: string[] };
+        /* eslint-enable @typescript-eslint/naming-convention */
+        cursor = result.cursor;
+        const tags = result.keys;
         for (const tagKey of tags) {
-          const keys = await this.runCommand(client, 'sMembers', () => client.sMembers(tagKey));
+          const keys = await this.runCommand('sMembers', () => client.sMembers(tagKey));
           const tag = tagKey.replace(/^tag:/, '');
           keys.forEach((key) => this.keyManager.registerKeyWithTags(key, [tag]));
         }
-      } while (cursor !== '0');
+      } while (cursor !== 0);
     } catch (error) {
       this.instrumentation?.onError?.(error as Error);
     } finally {
@@ -459,14 +470,15 @@ export class RedisAdapter implements ICacheAdapter {
 
   private async scanKeys(client: any, pattern: string): Promise<string[]> {
     const keys: string[] = [];
-    let cursor = '0';
+    let cursor = 0;
     do {
-      const [nextCursor, batch] = await this.runCommand(client, 'scan', () =>
+      const result = (await this.runCommand('scan', () =>
+        // eslint-disable-next-line @typescript-eslint/naming-convention
         client.scan(cursor, { MATCH: pattern, COUNT: 200 })
-      );
-      cursor = nextCursor;
-      keys.push(...batch);
-    } while (cursor !== '0');
+      )) as { cursor: number; keys: string[] };
+      cursor = result.cursor;
+      keys.push(...result.keys);
+    } while (cursor !== 0);
     return keys;
   }
 }

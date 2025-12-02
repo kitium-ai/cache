@@ -190,13 +190,13 @@ export class CacheManager extends EventEmitter implements ICacheManager {
 
     for (const key of keys) {
       const fullKey = this.keyManager.buildKey(key);
-        const result = await this.adapter.delete(fullKey);
-        if (result) {
-          deleted++;
-          deletedKeys.push(fullKey);
+      const result = await this.adapter.delete(fullKey);
+      if (result) {
+        deleted++;
+        deletedKeys.push(fullKey);
         this.memoryCache.delete(fullKey);
-        }
       }
+    }
 
     if (deleted > 0) {
       this.emitInvalidationEvent({
