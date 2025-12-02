@@ -13,6 +13,7 @@ export { CacheManager } from './CacheManager';
 export { CacheKeyManager } from './CacheKeyManager';
 export { RedisAdapter } from './RedisAdapter';
 export { RedisConnectionPool } from './RedisConnectionPool';
+export { InMemoryCache } from './InMemoryCache';
 
 export {
   InvalidationStrategy,
@@ -25,4 +26,6 @@ export {
   type InvalidationEvent,
   type ICacheAdapter,
   type ICacheManager,
+  type MemoryCacheConfig,
+  type InstrumentationHooks,
 } from './types';

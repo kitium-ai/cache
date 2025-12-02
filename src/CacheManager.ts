@@ -11,30 +11,49 @@ import {
   ConnectionPoolConfig,
   ICacheAdapter,
   ICacheManager,
+  InstrumentationHooks,
   InvalidationEvent,
   InvalidationStrategy,
+  MemoryCacheConfig,
   RedisConfig,
   TTLConfig,
 } from './types';
 import { CacheKeyManager } from './CacheKeyManager';
 import { RedisAdapter } from './RedisAdapter';
+import { InMemoryCache } from './InMemoryCache';
 
 export class CacheManager extends EventEmitter implements ICacheManager {
   private adapter: ICacheAdapter;
   private keyManager: CacheKeyManager;
   private ttlConfig: TTLConfig;
   private invalidationListeners: Set<(event: InvalidationEvent) => void> = new Set();
+  private memoryCache: InMemoryCache;
+  private pending: Map<string, Promise<unknown>> = new Map();
 
   constructor(
     redisConfig: RedisConfig,
     poolConfig: ConnectionPoolConfig,
     keyConfig: CacheKeyConfig = {},
-    ttlConfig: TTLConfig = { defaultTTL: 3600, maxTTL: 86400, minTTL: 1 }
+    ttlConfig: TTLConfig = { defaultTTL: 3600, maxTTL: 86400, minTTL: 1 },
+    memoryConfig: MemoryCacheConfig = {
+      enabled: true,
+      maxItems: 500,
+      ttlSeconds: ttlConfig.defaultTTL,
+      negativeTtlSeconds: 60,
+    },
+    instrumentation?: InstrumentationHooks
   ) {
     super();
     this.ttlConfig = ttlConfig;
     this.keyManager = new CacheKeyManager(keyConfig);
-    this.adapter = new RedisAdapter(redisConfig, poolConfig, this.keyManager, ttlConfig.defaultTTL);
+    this.memoryCache = new InMemoryCache(memoryConfig);
+    this.adapter = new RedisAdapter(
+      redisConfig,
+      poolConfig,
+      this.keyManager,
+      ttlConfig.defaultTTL,
+      instrumentation
+    );
   }
 
   /**
@@ -63,7 +82,19 @@ export class CacheManager extends EventEmitter implements ICacheManager {
    */
   async get<T>(key: string): Promise<T | null> {
     const fullKey = this.keyManager.buildKey(key);
-    return this.adapter.get<T>(fullKey);
+
+    const inMemory = this.memoryCache.get<T>(fullKey);
+    if (inMemory !== undefined) {
+      return inMemory;
+    }
+
+    const fromRemote = await this.adapter.get<T>(fullKey);
+    if (fromRemote === null) {
+      this.memoryCache.set(fullKey, null, undefined, true);
+    } else {
+      this.memoryCache.set(fullKey, fromRemote, this.ttlConfig.defaultTTL);
+    }
+    return fromRemote;
   }
 
   /**
@@ -79,6 +110,7 @@ export class CacheManager extends EventEmitter implements ICacheManager {
     };
 
     await this.adapter.set(fullKey, value, cacheOptions);
+    this.memoryCache.set(fullKey, value, ttl);
   }
 
   /**
@@ -87,24 +119,44 @@ export class CacheManager extends EventEmitter implements ICacheManager {
   async getOrSet<T>(key: string, fn: () => Promise<T>, options?: CacheOptions): Promise<T> {
     const fullKey = this.keyManager.buildKey(key);
 
+    const inMemory = this.memoryCache.get<T>(fullKey);
+    if (inMemory !== undefined) {
+      return inMemory as T;
+    }
+
+    if (this.pending.has(fullKey)) {
+      return (await this.pending.get(fullKey)) as T;
+    }
+
     // Try to get from cache
     const cached = await this.adapter.get<T>(fullKey);
     if (cached !== null) {
+      this.memoryCache.set(fullKey, cached, options?.ttl);
       return cached;
     }
 
     // Compute value
-    const value = await fn();
+    const pendingPromise = (async () => {
+      const value = await fn();
 
-    // Store in cache
-    const ttl = this.validateAndAdjustTTL(options?.ttl);
-    const cacheOptions: CacheOptions = {
-      ...options,
-      ttl,
-    };
+      // Store in cache
+      const ttl = this.validateAndAdjustTTL(options?.ttl);
+      const cacheOptions: CacheOptions = {
+        ...options,
+        ttl,
+      };
 
-    await this.adapter.set(fullKey, value, cacheOptions);
-    return value;
+      await this.adapter.set(fullKey, value, cacheOptions);
+      this.memoryCache.set(fullKey, value, ttl);
+      return value;
+    })();
+
+    this.pending.set(fullKey, pendingPromise);
+    try {
+      return await pendingPromise;
+    } finally {
+      this.pending.delete(fullKey);
+    }
   }
 
   /**
@@ -113,6 +165,9 @@ export class CacheManager extends EventEmitter implements ICacheManager {
   async delete(key: string): Promise<boolean> {
     const fullKey = this.keyManager.buildKey(key);
     const result = await this.adapter.delete(fullKey);
+    if (result) {
+      this.memoryCache.delete(fullKey);
+    }
 
     if (result) {
       this.emitInvalidationEvent({
@@ -135,12 +190,13 @@ export class CacheManager extends EventEmitter implements ICacheManager {
 
     for (const key of keys) {
       const fullKey = this.keyManager.buildKey(key);
-      const result = await this.adapter.delete(fullKey);
-      if (result) {
-        deleted++;
-        deletedKeys.push(fullKey);
+        const result = await this.adapter.delete(fullKey);
+        if (result) {
+          deleted++;
+          deletedKeys.push(fullKey);
+        this.memoryCache.delete(fullKey);
+        }
       }
-    }
 
     if (deleted > 0) {
       this.emitInvalidationEvent({
@@ -167,6 +223,7 @@ export class CacheManager extends EventEmitter implements ICacheManager {
    */
   async clear(): Promise<void> {
     await this.adapter.clear();
+    this.memoryCache.clear();
 
     this.emitInvalidationEvent({
       strategy: InvalidationStrategy.MANUAL,
@@ -261,6 +318,7 @@ export class CacheManager extends EventEmitter implements ICacheManager {
     // Set all entries
     const promises = entries.map(([key, value]) => {
       const fullKey = this.keyManager.buildKey(key);
+      this.memoryCache.set(fullKey, value, ttl);
       return this.adapter.set(fullKey, value, cacheOptions);
     });
 

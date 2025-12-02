@@ -70,6 +70,8 @@ export interface RedisConfig {
   password?: string;
   /** Redis database number */
   db?: number;
+  /** Optional encryption key for at-rest encryption */
+  encryptionKey?: string;
   /** Connection timeout in milliseconds */
   connectTimeoutMs?: number;
   /** Command timeout in milliseconds */
@@ -78,7 +80,17 @@ export interface RedisConfig {
   retryPolicy?: {
     maxAttempts: number;
     backoffMs: number;
+    /** Optional jitter added to backoff to avoid stampedes */
+    jitterMs?: number;
   };
+  /** Optional sentinel configuration */
+  sentinels?: { host: string; port: number }[];
+  /** Sentinel master set name */
+  sentinelName?: string;
+  /** Optional cluster node list */
+  clusterNodes?: { host: string; port: number }[];
+  /** Preferred read replica flag */
+  useReplicas?: boolean;
 }
 
 /**
@@ -93,6 +105,33 @@ export interface CacheOptions {
   tags?: string[];
   /** Whether to compress the value before storing */
   compress?: boolean;
+  /** Whether to encrypt the value before storing */
+  encrypt?: boolean;
+}
+
+/**
+ * Memory cache configuration for hot key acceleration
+ */
+export interface MemoryCacheConfig {
+  /** Enable in-memory cache tier */
+  enabled: boolean;
+  /** Maximum items allowed */
+  maxItems: number;
+  /** Default TTL in seconds for in-memory entries */
+  ttlSeconds: number;
+  /** TTL for negative cache entries */
+  negativeTtlSeconds?: number;
+  /** Maximum size in bytes before evicting oldest entries */
+  maxSizeBytes?: number;
+}
+
+/**
+ * Instrumentation hooks for observability
+ */
+export interface InstrumentationHooks {
+  onCommand?: (command: string, latencyMs: number, success: boolean) => void;
+  onError?: (error: Error) => void;
+  onStats?: (stats: CacheStats) => void;
 }
 
 /**

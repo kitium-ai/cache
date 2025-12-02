@@ -3,7 +3,9 @@
  * Implements the ICacheAdapter interface using Redis backend
  */
 
-import { CacheOptions, CacheStats, ICacheAdapter, RedisConfig } from './types';
+import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'crypto';
+import { gzipSync, gunzipSync } from 'zlib';
+import { CacheOptions, CacheStats, ICacheAdapter, InstrumentationHooks, RedisConfig } from './types';
 import { RedisConnectionPool } from './RedisConnectionPool';
 import { CacheKeyManager } from './CacheKeyManager';
 
@@ -21,16 +23,29 @@ export class RedisAdapter implements ICacheAdapter {
   };
   private defaultTTL: number;
   private isConnected: boolean = false;
+  private redisConfig: RedisConfig;
+  private commandTimeoutMs?: number;
+  private instrumentation?: InstrumentationHooks;
+  private statsPersistKey: string;
+  private encryptionKey?: Buffer;
 
   constructor(
     redisConfig: RedisConfig,
     poolConfig: any,
     keyManager: CacheKeyManager,
-    defaultTTL: number = 3600
+    defaultTTL: number = 3600,
+    instrumentation?: InstrumentationHooks
   ) {
+    this.redisConfig = redisConfig;
+    this.commandTimeoutMs = redisConfig.commandTimeoutMs;
     this.pool = new RedisConnectionPool(redisConfig, poolConfig);
     this.keyManager = keyManager;
     this.defaultTTL = defaultTTL;
+    this.instrumentation = instrumentation;
+    this.statsPersistKey = this.keyManager.buildNamespacedKey('meta', 'stats');
+    this.encryptionKey = redisConfig.encryptionKey
+      ? createHash('sha256').update(redisConfig.encryptionKey).digest()
+      : undefined;
   }
 
   async connect(): Promise<void> {
@@ -41,6 +56,7 @@ export class RedisAdapter implements ICacheAdapter {
     try {
       await this.pool.initialize();
       this.isConnected = true;
+      await this.reconcileTags();
     } catch (error) {
       throw new Error(
         `Failed to connect to Redis: ${error instanceof Error ? error.message : String(error)}`
@@ -71,7 +87,7 @@ export class RedisAdapter implements ICacheAdapter {
     try {
       const client = await this.pool.getConnection();
       try {
-        const result = await client.ping();
+        const result = await this.runCommand(client, 'ping', () => client.ping());
         return result === 'PONG';
       } finally {
         this.pool.releaseConnection(client);
@@ -89,16 +105,11 @@ export class RedisAdapter implements ICacheAdapter {
 
     const client = await this.pool.getConnection();
     try {
-      const value = await client.get(key);
+      const value = await this.runCommand(client, 'get', () => client.get(key));
 
       if (value) {
         this.stats.hits++;
-        try {
-          return JSON.parse(value) as T;
-        } catch {
-          // If not JSON, return as string
-          return value as unknown as T;
-        }
+        return this.decodeValue<T>(value);
       } else {
         this.stats.misses++;
         return null;
@@ -121,13 +132,13 @@ export class RedisAdapter implements ICacheAdapter {
 
     const client = await this.pool.getConnection();
     try {
-      const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+      const serialized = this.encodeValue(value, options);
       const ttl = options?.ttl ?? this.defaultTTL;
 
       if (ttl > 0) {
-        await client.setEx(key, ttl, serialized);
+        await this.runCommand(client, 'setEx', () => client.setEx(key, ttl, serialized));
       } else {
-        await client.set(key, serialized);
+        await this.runCommand(client, 'set', () => client.set(key, serialized));
       }
 
       // Register key with tags if provided
@@ -137,10 +148,10 @@ export class RedisAdapter implements ICacheAdapter {
         // Store tags in Redis for persistence
         for (const tag of options.tags) {
           const tagKey = `tag:${tag}`;
-          await client.sAdd(tagKey, key);
+          await this.runCommand(client, 'sAdd', () => client.sAdd(tagKey, key));
           // Set TTL on tag sets
           if (ttl > 0) {
-            await client.expire(tagKey, ttl);
+            await this.runCommand(client, 'expire', () => client.expire(tagKey, ttl));
           }
         }
       }
@@ -159,7 +170,7 @@ export class RedisAdapter implements ICacheAdapter {
   async delete(key: string): Promise<boolean> {
     const client = await this.pool.getConnection();
     try {
-      const result = await client.del(key);
+      const result = await this.runCommand(client, 'del', () => client.del(key));
       if (result > 0) {
         this.keyManager.unregisterKey(key);
         this.stats.itemCount--;
@@ -180,7 +191,7 @@ export class RedisAdapter implements ICacheAdapter {
   async exists(key: string): Promise<boolean> {
     const client = await this.pool.getConnection();
     try {
-      const result = await client.exists(key);
+      const result = await this.runCommand(client, 'exists', () => client.exists(key));
       return result > 0;
     } catch (error) {
       throw new Error(
@@ -196,10 +207,10 @@ export class RedisAdapter implements ICacheAdapter {
     try {
       // Get all keys with our prefix/namespace
       const pattern = this.keyManager.buildPattern('*');
-      const keys = await client.keys(pattern);
+      const keys = await this.scanKeys(client, pattern);
 
       if (keys.length > 0) {
-        await client.del(keys);
+        await this.runCommand(client, 'del', () => client.del(keys));
         this.stats.evictions += keys.length;
         this.stats.itemCount = 0;
       }
@@ -221,7 +232,7 @@ export class RedisAdapter implements ICacheAdapter {
       const searchPattern = pattern
         ? this.keyManager.buildPattern(pattern)
         : this.keyManager.buildPattern('*');
-      const keys = await client.keys(searchPattern);
+      const keys = await this.scanKeys(client, searchPattern);
       return keys;
     } catch (error) {
       throw new Error(
@@ -236,10 +247,10 @@ export class RedisAdapter implements ICacheAdapter {
     const client = await this.pool.getConnection();
     try {
       const searchPattern = this.keyManager.buildPattern(pattern);
-      const keys = await client.keys(searchPattern);
+      const keys = await this.scanKeys(client, searchPattern);
 
       if (keys.length > 0) {
-        await client.del(keys);
+        await this.runCommand(client, 'del', () => client.del(keys));
         this.stats.evictions += keys.length;
         this.stats.itemCount -= keys.length;
         this.updateStats();
@@ -262,14 +273,14 @@ export class RedisAdapter implements ICacheAdapter {
 
       for (const tag of tags) {
         const tagKey = `tag:${tag}`;
-        const keys = await client.sMembers(tagKey);
+        const keys = await this.runCommand(client, 'sMembers', () => client.sMembers(tagKey));
         keys.forEach((key) => keysToDelete.add(key));
-        await client.del(tagKey);
+        await this.runCommand(client, 'del', () => client.del(tagKey));
       }
 
       if (keysToDelete.size > 0) {
         const keyArray = Array.from(keysToDelete);
-        await client.del(keyArray);
+        await this.runCommand(client, 'del', () => client.del(keyArray));
         this.stats.evictions += keyArray.length;
         this.stats.itemCount -= keyArray.length;
         this.updateStats();
@@ -298,5 +309,164 @@ export class RedisAdapter implements ICacheAdapter {
         ? (this.stats.hits / (this.stats.hits + this.stats.misses)) * 100
         : 0;
     this.stats.lastUpdated = Date.now();
+    this.instrumentation?.onStats?.({ ...this.stats });
+    void this.persistStats();
+  }
+
+  private async persistStats(): Promise<void> {
+    if (!this.isConnected) return;
+    try {
+      const client = await this.pool.getConnection();
+      await this.runCommand(client, 'set', () =>
+        client.set(this.statsPersistKey, JSON.stringify(this.stats), {
+          EX: 600,
+        })
+      );
+    } catch (error) {
+      this.instrumentation?.onError?.(error as Error);
+    }
+  }
+
+  private async runCommand<T>(
+    client: any,
+    command: string,
+    fn: () => Promise<T>
+  ): Promise<T> {
+    const start = Date.now();
+    try {
+      const result = await this.executeWithRetry(() => this.withTimeout(fn()));
+      this.instrumentation?.onCommand?.(command, Date.now() - start, true);
+      return result;
+    } catch (error) {
+      this.instrumentation?.onCommand?.(command, Date.now() - start, false);
+      this.instrumentation?.onError?.(error as Error);
+      throw error;
+    }
+  }
+
+  private async executeWithRetry<T>(fn: () => Promise<T>): Promise<T> {
+    const policy = this.redisConfig.retryPolicy ?? { maxAttempts: 1, backoffMs: 0, jitterMs: 0 };
+    let attempt = 0;
+    let lastError: unknown;
+
+    while (attempt < policy.maxAttempts) {
+      try {
+        return await fn();
+      } catch (error) {
+        lastError = error;
+        attempt++;
+        if (attempt >= policy.maxAttempts) {
+          break;
+        }
+        const jitter = policy.jitterMs ? Math.floor(Math.random() * policy.jitterMs) : 0;
+        await new Promise((resolve) => setTimeout(resolve, policy.backoffMs * attempt + jitter));
+      }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  }
+
+  private async withTimeout<T>(promise: Promise<T>): Promise<T> {
+    if (!this.commandTimeoutMs) {
+      return promise;
+    }
+
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error('Redis command timed out')), this.commandTimeoutMs)
+      ),
+    ]);
+  }
+
+  private encodeValue<T>(value: T, options?: CacheOptions): string {
+    const base = typeof value === 'string' ? value : JSON.stringify(value);
+    const compress = options?.compress === true;
+    const encrypt = options?.encrypt === true && this.encryptionKey;
+    let payload: string | Buffer = base;
+
+    if (compress) {
+      payload = gzipSync(Buffer.from(String(base)));
+    }
+
+    if (encrypt) {
+      const iv = randomBytes(12);
+      const cipher = createCipheriv('aes-256-gcm', this.encryptionKey as Buffer, iv);
+      const encrypted = Buffer.concat([cipher.update(payload), cipher.final()]);
+      const authTag = cipher.getAuthTag();
+      payload = Buffer.concat([iv, authTag, encrypted]);
+    }
+
+    return JSON.stringify({
+      compressed: compress,
+      encrypted: Boolean(encrypt),
+      payload: Buffer.isBuffer(payload) ? payload.toString('base64') : String(payload),
+    });
+  }
+
+  private decodeValue<T>(stored: string): T | null {
+    try {
+      const parsed = JSON.parse(stored);
+      if (parsed && parsed.payload !== undefined) {
+        let buffer = Buffer.from(parsed.payload, 'base64');
+        if (parsed.encrypted && this.encryptionKey) {
+          const iv = buffer.subarray(0, 12);
+          const authTag = buffer.subarray(12, 28);
+          const data = buffer.subarray(28);
+          const decipher = createDecipheriv('aes-256-gcm', this.encryptionKey, iv);
+          decipher.setAuthTag(authTag);
+          buffer = Buffer.concat([decipher.update(data), decipher.final()]);
+        }
+
+        if (parsed.compressed) {
+          buffer = gunzipSync(buffer);
+        }
+
+        const text = buffer.toString('utf8');
+        return JSON.parse(text) as T;
+      }
+
+      return JSON.parse(stored) as T;
+    } catch {
+      return stored as unknown as T;
+    }
+  }
+
+  private async reconcileTags(): Promise<void> {
+    const client = await this.pool.getConnection();
+    try {
+      let cursor = '0';
+      do {
+        const [nextCursor, tags] = await this.runCommand(client, 'scan', () =>
+          client.scan(cursor, {
+            MATCH: 'tag:*',
+            COUNT: 100,
+          })
+        );
+        cursor = nextCursor;
+        for (const tagKey of tags) {
+          const keys = await this.runCommand(client, 'sMembers', () => client.sMembers(tagKey));
+          const tag = tagKey.replace(/^tag:/, '');
+          keys.forEach((key) => this.keyManager.registerKeyWithTags(key, [tag]));
+        }
+      } while (cursor !== '0');
+    } catch (error) {
+      this.instrumentation?.onError?.(error as Error);
+    } finally {
+      this.pool.releaseConnection(client);
+    }
+  }
+
+  private async scanKeys(client: any, pattern: string): Promise<string[]> {
+    const keys: string[] = [];
+    let cursor = '0';
+    do {
+      const [nextCursor, batch] = await this.runCommand(client, 'scan', () =>
+        client.scan(cursor, { MATCH: pattern, COUNT: 200 })
+      );
+      cursor = nextCursor;
+      keys.push(...batch);
+    } while (cursor !== '0');
+    return keys;
   }
 }
