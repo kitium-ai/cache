@@ -1,3 +1,4 @@
+import { describe, it, expect, beforeEach } from 'vitest';
 import { CacheKeyManager } from '../CacheKeyManager';
 import { CacheKeyConfig } from '../types';
 
@@ -56,12 +57,12 @@ describe('CacheKeyManager', () => {
   describe('buildPattern', () => {
     it('should build a pattern for key matching', () => {
       const pattern = keyManager.buildPattern('user', '*');
-      expect(pattern).toBe('app:cache:user:*');
+      expect(pattern).toBe('app:cache:user:**');
     });
 
     it('should build a namespace-wide pattern', () => {
       const pattern = keyManager.buildPattern('*');
-      expect(pattern).toBe('app:cache:*');
+      expect(pattern).toBe('app:cache:**');
     });
   });
 

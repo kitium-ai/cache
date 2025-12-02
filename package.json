@@ -2,43 +2,127 @@
   "name": "@kitiumai/cache",
   "version": "1.0.0",
   "description": "Enterprise-ready Redis abstraction layer with connection pooling, cache key management, and invalidation strategies",
+  "type": "module",
+  "sideEffects": false,
   "main": "dist/index.js",
+  "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
   "files": [
-    "dist"
+    "dist/**/*",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "tsc",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "lint": "eslint src --ext .ts",
-    "clean": "rm -rf dist"
+    "build": "tsup src/index.ts --format cjs,esm --sourcemap --dts --clean --target es2020 --platform node",
+    "dev": "tsup src/index.ts --format cjs,esm --sourcemap --dts --watch --target es2020 --platform node",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest watch",
+    "test:coverage": "vitest run --coverage --passWithNoTests",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix",
+    "typecheck": "tsc -b --noEmit",
+    "clean": "rimraf dist",
+    "format": "prettier --check .",
+    "format:fix": "prettier --write .",
+    "lint:all": "node --input-type=module -e \"import { lintAll } from '@kitiumai/scripts/lint'; await lintAll(false);\"",
+    "security:audit": "node --input-type=module -e \"import { auditDependencies } from '@kitiumai/scripts/security'; const summary = await auditDependencies({ severityThreshold: 'moderate' }); if ((summary.severityCounts?.critical || 0) + (summary.severityCounts?.high || 0) + (summary.severityCounts?.moderate || 0) > 0) { console.log(JSON.stringify(summary, null, 2)); process.exit(1); } console.log('No blocking vulnerabilities');\"",
+    "security:secrets": "node --input-type=module -e \"import { scanSecrets } from '@kitiumai/scripts/security'; const result = await scanSecrets({ configPath: '.gitleaks.toml', failOnFinding: true }); if (result.findings?.length) { console.error(JSON.stringify(result.findings, null, 2)); process.exit(1); } console.log('No secrets detected');\"",
+    "ci:verify": "pnpm run lint:all && pnpm run test:coverage && pnpm run typecheck",
+    "changeset": "ensure-changeset && changeset",
+    "version": "ensure-changeset && changeset version",
+    "publish:set-token": "set-npm-token",
+    "publish:setup": "set-npm-token",
+    "publish:check": "npm whoami --registry https://registry.npmjs.org || npm login --registry https://registry.npmjs.org",
+    "publish:login": "npm login --registry https://registry.npmjs.org",
+    "publish:package": "pnpm run publish:check && pnpm publish --access public --no-git-checks --registry https://registry.npmjs.org",
+    "publish:package:token": "pnpm run publish:setup && pnpm publish --access public --no-git-checks --registry https://registry.npmjs.org",
+    "publish:package:otp": "pnpm run publish:check && pnpm publish --access public --no-git-checks --registry https://registry.npmjs.org --otp",
+    "publish:dry-run": "pnpm publish --access public --no-git-checks --dry-run --registry https://registry.npmjs.org",
+    "publish:dry-run:token": "pnpm run publish:setup && pnpm publish --access public --no-git-checks --dry-run --registry https://registry.npmjs.org",
+    "release": "pnpm version && pnpm install --lockfile-only"
   },
   "keywords": [
     "redis",
     "cache",
+    "caching",
     "connection-pooling",
     "key-management",
     "ttl",
-    "invalidation"
+    "invalidation",
+    "cache-invalidation",
+    "distributed-cache",
+    "redis-cache",
+    "redis-client",
+    "redis-pool",
+    "memory-cache",
+    "in-memory",
+    "node-cache",
+    "typescript",
+    "type-safe",
+    "enterprise",
+    "enterprise-ready",
+    "production-ready",
+    "microservices",
+    "scalable",
+    "performance",
+    "high-performance",
+    "session-cache",
+    "api-cache",
+    "data-cache",
+    "cache-manager",
+    "cache-adapter",
+    "backend",
+    "nodejs",
+    "node",
+    "kitium",
+    "kitiumai"
   ],
   "author": "Kitium AI",
   "license": "MIT",
   "dependencies": {
     "redis": "^4.6.13",
-    "node-cache": "^5.1.2"
+    "node-cache": "^5.1.2",
+    "@kitiumai/logger": "^2.0.1",
+    "@kitiumai/types": "^2.0.1",
+    "@kitiumai/error": "^2.0.1",
+    "@kitiumai/utils-ts": "^2.0.2"
   },
   "devDependencies": {
-    "@types/node": "^20.10.5",
-    "@types/jest": "^29.5.11",
-    "jest": "^29.7.0",
-    "ts-jest": "^29.1.1",
-    "typescript": "^5.3.3",
-    "@typescript-eslint/eslint-plugin": "^6.16.0",
-    "@typescript-eslint/parser": "^6.16.0",
-    "eslint": "^8.56.0"
+    "@kitiumai/config": "^2.0.1",
+    "@kitiumai/vitest-helpers": "^2.0.1",
+    "@kitiumai/lint": "^2.0.1",
+    "@kitiumai/scripts": "^1.0.0",
+    "@types/node": "^24.10.1",
+    "@vitest/coverage-v8": "^2.1.3",
+    "typescript": "^5.6.0",
+    "@typescript-eslint/eslint-plugin": "^8.16.0",
+    "@typescript-eslint/parser": "^8.16.0",
+    "eslint": "^9.15.0",
+    "tsup": "^7.2.0",
+    "vitest": "^2.1.8",
+    "rimraf": "^5.0.5"
   },
   "engines": {
     "node": ">=16.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kitium-ai/cache.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kitium-ai/cache/issues"
+  },
+  "homepage": "https://github.com/kitium-ai/cache#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   }
 }

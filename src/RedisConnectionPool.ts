@@ -13,7 +13,6 @@ export class RedisConnectionPool {
   private config: ConnectionPoolConfig;
   private redisConfig: RedisConfig;
   private isInitialized: boolean = false;
-  private connectionMutex: Promise<void> = Promise.resolve();
   private waitQueue: Array<{
     resolve: (client: RedisClientType) => void;
     reject: (error: Error) => void;
@@ -56,7 +55,7 @@ export class RedisConnectionPool {
       this.isInitialized = true;
     } catch (error) {
       // Clean up any created connections
-      await Promise.all(this.pool.map(client => this.closeConnection(client)));
+      await Promise.all(this.pool.map((client) => this.closeConnection(client)));
       throw error;
     }
   }
@@ -70,7 +69,7 @@ export class RedisConnectionPool {
     }
 
     // Try to get from available connections
-    let client = this.availableConnections.pop();
+    const client = this.availableConnections.pop();
 
     if (client) {
       // Verify connection is still healthy
@@ -80,7 +79,7 @@ export class RedisConnectionPool {
       } else {
         // Remove unhealthy connection
         await this.closeConnection(client);
-        this.pool = this.pool.filter(c => c !== client);
+        this.pool = this.pool.filter((c) => c !== client);
       }
     }
 
@@ -91,7 +90,7 @@ export class RedisConnectionPool {
         this.pool.push(newClient);
         this.inUseConnections.add(newClient);
         return newClient;
-      } catch (error) {
+      } catch {
         // If creation fails, wait for an available connection
         return this.waitForConnection();
       }
@@ -124,7 +123,7 @@ export class RedisConnectionPool {
       }
     } else {
       // Remove unhealthy connection from pool
-      this.pool = this.pool.filter(c => c !== client);
+      this.pool = this.pool.filter((c) => c !== client);
     }
   }
 
@@ -135,7 +134,7 @@ export class RedisConnectionPool {
     // Wait for any in-use connections to be released
     let attempts = 0;
     while (this.inUseConnections.size > 0 && attempts < 30) {
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 100));
       attempts++;
     }
 
@@ -147,7 +146,7 @@ export class RedisConnectionPool {
     this.waitQueue = [];
 
     // Close all connections
-    await Promise.all(this.pool.map(client => this.closeConnection(client)));
+    await Promise.all(this.pool.map((client) => this.closeConnection(client)));
 
     this.pool = [];
     this.availableConnections = [];
@@ -176,20 +175,25 @@ export class RedisConnectionPool {
    * Private: Create a new Redis connection
    */
   private async createConnection(): Promise<RedisClientType> {
-    const client = createClient({
+    const config: any = {
       socket: {
         host: this.redisConfig.host,
         port: this.redisConfig.port,
         connectTimeout: this.redisConfig.connectTimeoutMs || 5000,
       },
-      password: this.redisConfig.password,
-      db: this.redisConfig.db || 0,
-      commandTimeout: this.redisConfig.commandTimeoutMs || 5000,
-    });
+      database: this.redisConfig.db || 0,
+      commandsQueueMaxLength: 1000,
+    };
+
+    if (this.redisConfig.password) {
+      config.password = this.redisConfig.password;
+    }
+
+    const client = createClient(config);
 
     try {
       await client.connect();
-      return client;
+      return client as any;
     } catch (error) {
       client.quit();
       throw error;
@@ -238,15 +242,12 @@ export class RedisConnectionPool {
         return;
       }
 
-      // Check idle connections
-      const now = Date.now();
-      const idleConnections: RedisClientType[] = [];
-
+      // Check and remove unhealthy connections
       for (const client of this.availableConnections) {
         if (!(await this.isConnectionHealthy(client))) {
           // Remove unhealthy connection
-          this.pool = this.pool.filter(c => c !== client);
-          this.availableConnections = this.availableConnections.filter(c => c !== client);
+          this.pool = this.pool.filter((c) => c !== client);
+          this.availableConnections = this.availableConnections.filter((c) => c !== client);
           await this.closeConnection(client);
         }
       }
@@ -271,7 +272,7 @@ export class RedisConnectionPool {
   private waitForConnection(): Promise<RedisClientType> {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        const idx = this.waitQueue.findIndex(item => item.resolve === resolve);
+        const idx = this.waitQueue.findIndex((item) => item.resolve === resolve);
         if (idx >= 0) {
           this.waitQueue.splice(idx, 1);
         }
@@ -285,7 +286,7 @@ export class RedisConnectionPool {
   /**
    * Check if pool is initialized
    */
-  isInitialized(): boolean {
+  getInitializationStatus(): boolean {
     return this.isInitialized;
   }
 }

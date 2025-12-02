@@ -1,8 +1,9 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { CacheManager } from '../CacheManager';
-import { InvalidationStrategy, RedisConfig, ConnectionPoolConfig, CacheKeyConfig, TTLConfig } from '../types';
+import { RedisConfig, ConnectionPoolConfig, CacheKeyConfig, TTLConfig } from '../types';
 
 // Mock the Redis adapter
-jest.mock('../RedisAdapter');
+vi.mock('../RedisAdapter');
 
 describe('CacheManager', () => {
   let cacheManager: CacheManager;
@@ -33,7 +34,7 @@ describe('CacheManager', () => {
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     cacheManager = new CacheManager(redisConfig, poolConfig, keyConfig, ttlConfig);
   });
 
@@ -56,7 +57,7 @@ describe('CacheManager', () => {
 
   describe('TTL Configuration', () => {
     it('should use default TTL when not specified', async () => {
-      const spy = jest.spyOn(cacheManager.getAdapter(), 'set');
+      const spy = vi.spyOn(cacheManager.getAdapter(), 'set');
 
       await cacheManager.set('test-key', 'test-value', {});
 
@@ -66,7 +67,7 @@ describe('CacheManager', () => {
     });
 
     it('should respect maximum TTL limit', async () => {
-      const spy = jest.spyOn(cacheManager.getAdapter(), 'set');
+      const spy = vi.spyOn(cacheManager.getAdapter(), 'set');
 
       await cacheManager.set('test-key', 'test-value', { ttl: 999999 });
 
@@ -75,7 +76,7 @@ describe('CacheManager', () => {
     });
 
     it('should respect minimum TTL limit', async () => {
-      const spy = jest.spyOn(cacheManager.getAdapter(), 'set');
+      const spy = vi.spyOn(cacheManager.getAdapter(), 'set');
 
       await cacheManager.set('test-key', 'test-value', { ttl: 10 });
 
@@ -84,7 +85,7 @@ describe('CacheManager', () => {
     });
 
     it('should accept valid TTL within bounds', async () => {
-      const spy = jest.spyOn(cacheManager.getAdapter(), 'set');
+      const spy = vi.spyOn(cacheManager.getAdapter(), 'set');
       const customTTL = 1800;
 
       await cacheManager.set('test-key', 'test-value', { ttl: customTTL });
@@ -96,7 +97,7 @@ describe('CacheManager', () => {
 
   describe('Cache Operations', () => {
     it('should set cache value', async () => {
-      const spy = jest.spyOn(cacheManager.getAdapter(), 'set').mockResolvedValue(undefined);
+      const spy = vi.spyOn(cacheManager.getAdapter(), 'set').mockResolvedValue(undefined);
 
       await cacheManager.set('user:123', { name: 'John' });
 
@@ -106,7 +107,7 @@ describe('CacheManager', () => {
     });
 
     it('should get cache value', async () => {
-      const spy = jest.spyOn(cacheManager.getAdapter(), 'get').mockResolvedValue({ name: 'John' });
+      const spy = vi.spyOn(cacheManager.getAdapter(), 'get').mockResolvedValue({ name: 'John' });
 
       const result = await cacheManager.get('user:123');
 
@@ -115,7 +116,7 @@ describe('CacheManager', () => {
     });
 
     it('should delete cache key', async () => {
-      const spy = jest.spyOn(cacheManager.getAdapter(), 'delete').mockResolvedValue(true);
+      const spy = vi.spyOn(cacheManager.getAdapter(), 'delete').mockResolvedValue(true);
 
       const result = await cacheManager.delete('user:123');
 
@@ -124,7 +125,7 @@ describe('CacheManager', () => {
     });
 
     it('should check key existence', async () => {
-      const spy = jest.spyOn(cacheManager.getAdapter(), 'exists').mockResolvedValue(true);
+      const spy = vi.spyOn(cacheManager.getAdapter(), 'exists').mockResolvedValue(true);
 
       const result = await cacheManager.exists('user:123');
 
@@ -133,7 +134,7 @@ describe('CacheManager', () => {
     });
 
     it('should clear entire cache', async () => {
-      const spy = jest.spyOn(cacheManager.getAdapter(), 'clear').mockResolvedValue(undefined);
+      const spy = vi.spyOn(cacheManager.getAdapter(), 'clear').mockResolvedValue(undefined);
 
       await cacheManager.clear();
 
@@ -144,9 +145,9 @@ describe('CacheManager', () => {
   describe('Get or Set Operation', () => {
     it('should return cached value if exists', async () => {
       const mockValue = { id: 1, name: 'Test' };
-      jest.spyOn(cacheManager.getAdapter(), 'get').mockResolvedValue(mockValue);
+      vi.spyOn(cacheManager.getAdapter(), 'get').mockResolvedValue(mockValue);
 
-      const fn = jest.fn().mockResolvedValue({ id: 2, name: 'Computed' });
+      const fn = vi.fn().mockResolvedValue({ id: 2, name: 'Computed' });
       const result = await cacheManager.getOrSet('test-key', fn);
 
       expect(result).toEqual(mockValue);
@@ -155,10 +156,10 @@ describe('CacheManager', () => {
 
     it('should compute and cache if not exists', async () => {
       const mockValue = { id: 1, name: 'Test' };
-      jest.spyOn(cacheManager.getAdapter(), 'get').mockResolvedValue(null);
-      jest.spyOn(cacheManager.getAdapter(), 'set').mockResolvedValue(undefined);
+      vi.spyOn(cacheManager.getAdapter(), 'get').mockResolvedValue(null);
+      vi.spyOn(cacheManager.getAdapter(), 'set').mockResolvedValue(undefined);
 
-      const fn = jest.fn().mockResolvedValue(mockValue);
+      const fn = vi.fn().mockResolvedValue(mockValue);
       const result = await cacheManager.getOrSet('test-key', fn);
 
       expect(result).toEqual(mockValue);
@@ -168,7 +169,7 @@ describe('CacheManager', () => {
 
   describe('Bulk Operations', () => {
     it('should delete multiple keys', async () => {
-      const spy = jest.spyOn(cacheManager.getAdapter(), 'delete').mockResolvedValue(true);
+      const spy = vi.spyOn(cacheManager.getAdapter(), 'delete').mockResolvedValue(true);
 
       const count = await cacheManager.deleteMultiple(['key1', 'key2', 'key3']);
 
@@ -177,9 +178,9 @@ describe('CacheManager', () => {
     });
 
     it('should warmup cache with multiple entries', async () => {
-      const spy = jest.spyOn(cacheManager.getAdapter(), 'set').mockResolvedValue(undefined);
+      const spy = vi.spyOn(cacheManager.getAdapter(), 'set').mockResolvedValue(undefined);
 
-      const data = {
+      const data: Record<string, unknown> = {
         'user:1': { id: 1, name: 'User 1' },
         'user:2': { id: 2, name: 'User 2' },
       };
@@ -190,7 +191,7 @@ describe('CacheManager', () => {
     });
 
     it('should get keys by pattern', async () => {
-      const spy = jest
+      const spy = vi
         .spyOn(cacheManager.getAdapter(), 'getKeys')
         .mockResolvedValue(['test:cache:user:1', 'test:cache:user:2']);
 
@@ -203,7 +204,7 @@ describe('CacheManager', () => {
 
   describe('Invalidation', () => {
     it('should invalidate by pattern', async () => {
-      const spy = jest.spyOn(cacheManager.getAdapter(), 'invalidatePattern').mockResolvedValue(5);
+      const spy = vi.spyOn(cacheManager.getAdapter(), 'invalidatePattern').mockResolvedValue(5);
 
       const count = await cacheManager.invalidatePattern('user:*');
 
@@ -212,7 +213,7 @@ describe('CacheManager', () => {
     });
 
     it('should invalidate by tags', async () => {
-      const spy = jest.spyOn(cacheManager.getAdapter(), 'invalidateByTags').mockResolvedValue(10);
+      const spy = vi.spyOn(cacheManager.getAdapter(), 'invalidateByTags').mockResolvedValue(10);
 
       const count = await cacheManager.invalidateByTags(['users', 'active']);
 
@@ -221,27 +222,25 @@ describe('CacheManager', () => {
     });
 
     it('should register invalidation listener', (done) => {
-      const listener = jest.fn();
+      const listener = vi.fn();
       cacheManager.onInvalidation(listener);
 
-      // Simulate invalidation
-      const event = {
-        strategy: InvalidationStrategy.PATTERN,
-        keys: ['key1', 'key2'],
-        timestamp: Date.now(),
-        reason: 'Test',
-      };
+      // Mock the invalidatePattern method to return a promise
+      vi.spyOn(cacheManager.getAdapter(), 'invalidatePattern').mockResolvedValue(2);
 
-      cacheManager.getAdapter().invalidatePattern('test:*').then(() => {
-        // Listener should be called
-        setTimeout(() => {
-          done();
-        }, 100);
-      });
+      cacheManager
+        .getAdapter()
+        .invalidatePattern('test:*')
+        .then(() => {
+          // Listener should be called
+          setTimeout(() => {
+            done();
+          }, 100);
+        });
     });
 
     it('should unregister invalidation listener', () => {
-      const listener = jest.fn();
+      const listener = vi.fn();
       cacheManager.onInvalidation(listener);
       cacheManager.offInvalidation(listener);
 
@@ -251,7 +250,7 @@ describe('CacheManager', () => {
 
   describe('Health and Statistics', () => {
     it('should perform health check', async () => {
-      const spy = jest.spyOn(cacheManager.getAdapter(), 'healthCheck').mockResolvedValue(true);
+      const spy = vi.spyOn(cacheManager.getAdapter(), 'healthCheck').mockResolvedValue(true);
 
       const result = await cacheManager.healthCheck();
 
@@ -270,7 +269,7 @@ describe('CacheManager', () => {
         lastUpdated: Date.now(),
       };
 
-      const spy = jest.spyOn(cacheManager.getAdapter(), 'getStats').mockResolvedValue(mockStats);
+      const spy = vi.spyOn(cacheManager.getAdapter(), 'getStats').mockResolvedValue(mockStats);
 
       const stats = await cacheManager.getStats();
 
@@ -281,7 +280,7 @@ describe('CacheManager', () => {
 
   describe('Connection Lifecycle', () => {
     it('should connect', async () => {
-      const spy = jest.spyOn(cacheManager.getAdapter(), 'connect').mockResolvedValue(undefined);
+      const spy = vi.spyOn(cacheManager.getAdapter(), 'connect').mockResolvedValue(undefined);
 
       await cacheManager.connect();
 
@@ -289,7 +288,7 @@ describe('CacheManager', () => {
     });
 
     it('should disconnect', async () => {
-      const spy = jest.spyOn(cacheManager.getAdapter(), 'disconnect').mockResolvedValue(undefined);
+      const spy = vi.spyOn(cacheManager.getAdapter(), 'disconnect').mockResolvedValue(undefined);
 
       await cacheManager.disconnect();
 

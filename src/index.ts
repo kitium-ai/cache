@@ -14,17 +14,15 @@ export { CacheKeyManager } from './CacheKeyManager';
 export { RedisAdapter } from './RedisAdapter';
 export { RedisConnectionPool } from './RedisConnectionPool';
 
-export type {
+export {
   InvalidationStrategy,
-  TTLConfig,
-  CacheKeyConfig,
-  ConnectionPoolConfig,
-  RedisConfig,
-  CacheOptions,
-  CacheStats,
-  InvalidationEvent,
-  ICacheAdapter,
-  ICacheManager,
+  type TTLConfig,
+  type CacheKeyConfig,
+  type ConnectionPoolConfig,
+  type RedisConfig,
+  type CacheOptions,
+  type CacheStats,
+  type InvalidationEvent,
+  type ICacheAdapter,
+  type ICacheManager,
 } from './types';
-
-export { InvalidationStrategy } from './types';

@@ -31,25 +31,45 @@ async function invalidationExample(): Promise<void> {
     // Setup: Create some cache entries with tags
     console.log('Setting up cache entries...\n');
 
-    await cache.set('user:1', { id: 1, name: 'Alice', status: 'active' }, {
-      tags: ['users', 'active', 'premium'],
-    });
+    await cache.set(
+      'user:1',
+      { id: 1, name: 'Alice', status: 'active' },
+      {
+        tags: ['users', 'active', 'premium'],
+      }
+    );
 
-    await cache.set('user:2', { id: 2, name: 'Bob', status: 'active' }, {
-      tags: ['users', 'active'],
-    });
+    await cache.set(
+      'user:2',
+      { id: 2, name: 'Bob', status: 'active' },
+      {
+        tags: ['users', 'active'],
+      }
+    );
 
-    await cache.set('user:3', { id: 3, name: 'Charlie', status: 'inactive' }, {
-      tags: ['users', 'inactive'],
-    });
+    await cache.set(
+      'user:3',
+      { id: 3, name: 'Charlie', status: 'inactive' },
+      {
+        tags: ['users', 'inactive'],
+      }
+    );
 
-    await cache.set('post:1', { id: 1, title: 'Post 1', authorId: 1 }, {
-      tags: ['posts', 'published'],
-    });
+    await cache.set(
+      'post:1',
+      { id: 1, title: 'Post 1', authorId: 1 },
+      {
+        tags: ['posts', 'published'],
+      }
+    );
 
-    await cache.set('post:2', { id: 2, title: 'Post 2', authorId: 2 }, {
-      tags: ['posts', 'published'],
-    });
+    await cache.set(
+      'post:2',
+      { id: 2, title: 'Post 2', authorId: 2 },
+      {
+        tags: ['posts', 'published'],
+      }
+    );
 
     console.log('Created 5 cache entries\n');
 
@@ -60,15 +80,27 @@ async function invalidationExample(): Promise<void> {
     console.log(`   Invalidated ${invalidatedByPattern} entries\n`);
 
     // Re-populate for next examples
-    await cache.set('user:1', { id: 1, name: 'Alice', status: 'active' }, {
-      tags: ['users', 'active', 'premium'],
-    });
-    await cache.set('user:2', { id: 2, name: 'Bob', status: 'active' }, {
-      tags: ['users', 'active'],
-    });
-    await cache.set('user:3', { id: 3, name: 'Charlie', status: 'inactive' }, {
-      tags: ['users', 'inactive'],
-    });
+    await cache.set(
+      'user:1',
+      { id: 1, name: 'Alice', status: 'active' },
+      {
+        tags: ['users', 'active', 'premium'],
+      }
+    );
+    await cache.set(
+      'user:2',
+      { id: 2, name: 'Bob', status: 'active' },
+      {
+        tags: ['users', 'active'],
+      }
+    );
+    await cache.set(
+      'user:3',
+      { id: 3, name: 'Charlie', status: 'inactive' },
+      {
+        tags: ['users', 'inactive'],
+      }
+    );
 
     // 2. Tag-based invalidation
     console.log('2. TAG-BASED INVALIDATION');
@@ -77,12 +109,20 @@ async function invalidationExample(): Promise<void> {
     console.log(`   Invalidated ${invalidatedByTag} entries\n`);
 
     // Re-populate
-    await cache.set('user:1', { id: 1, name: 'Alice', status: 'active' }, {
-      tags: ['users', 'active', 'premium'],
-    });
-    await cache.set('user:2', { id: 2, name: 'Bob', status: 'active' }, {
-      tags: ['users', 'active'],
-    });
+    await cache.set(
+      'user:1',
+      { id: 1, name: 'Alice', status: 'active' },
+      {
+        tags: ['users', 'active', 'premium'],
+      }
+    );
+    await cache.set(
+      'user:2',
+      { id: 2, name: 'Bob', status: 'active' },
+      {
+        tags: ['users', 'active'],
+      }
+    );
 
     // 3. Manual single key deletion
     console.log('3. MANUAL KEY DELETION');
@@ -98,12 +138,20 @@ async function invalidationExample(): Promise<void> {
     console.log(`   Deleted ${deletedCount} keys\n`);
 
     // Re-populate for event example
-    await cache.set('user:1', { id: 1, name: 'Alice', status: 'active' }, {
-      tags: ['users', 'active'],
-    });
-    await cache.set('user:2', { id: 2, name: 'Bob', status: 'active' }, {
-      tags: ['users', 'active'],
-    });
+    await cache.set(
+      'user:1',
+      { id: 1, name: 'Alice', status: 'active' },
+      {
+        tags: ['users', 'active'],
+      }
+    );
+    await cache.set(
+      'user:2',
+      { id: 2, name: 'Bob', status: 'active' },
+      {
+        tags: ['users', 'active'],
+      }
+    );
 
     // 5. Event-driven invalidation
     console.log('5. EVENT-DRIVEN INVALIDATION');
@@ -154,7 +202,6 @@ async function invalidationExample(): Promise<void> {
 
     const userKeys = await cache.getKeys('user:*');
     console.log(`   User keys: ${userKeys.join(', ')}\n`);
-
   } catch (error) {
     console.error('Error:', error instanceof Error ? error.message : String(error));
   } finally {

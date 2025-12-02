@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 #### Core Features
+
 - **Redis Abstraction Layer** - Complete Redis client wrapper with type-safe operations
   - `RedisAdapter`: Main Redis backend implementation
   - Connection management and lifecycle handling
@@ -56,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **TTL-Based**: Automatic expiration via Redis TTL
 
 #### Type Safety
+
 - Complete TypeScript implementation with strict mode
 - Comprehensive type definitions and interfaces:
   - `InvalidationStrategy`: Enum for invalidation types
@@ -71,6 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Full type exports for library users
 
 #### Testing & Quality Assurance
+
 - Comprehensive unit test suites
   - `CacheKeyManager.test.ts`: 100+ test cases covering:
     - Key building and extraction
@@ -92,6 +95,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript strict mode enforcement
 
 #### Documentation
+
 - **README.md** - Comprehensive documentation including:
   - Feature overview with emoji highlights
   - Installation instructions
@@ -106,6 +110,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Contributing guidelines
 
 #### Examples
+
 - **basic-usage.ts** - Demonstrates fundamental operations:
   - Cache initialization and connection
   - Set and get operations
@@ -126,6 +131,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Key querying and filtering
 
 #### Configuration Files
+
 - **package.json** - Complete package metadata with:
   - Package name: `@kitiumai/cache`
   - All required npm fields
@@ -157,6 +163,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Unused variable warnings
 
 #### Project Setup
+
 - Git repository initialization on branch `claude/create-cache-package-01XkCxaMB2oKFmpuBxL39bMe`
 - .gitignore configuration for common files
 - MIT License
@@ -165,6 +172,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 #### Repository Structure (v1.0.0-restructure)
+
 - **Flattened package structure**: Moved all package content from `packages/cache/` to repository root
 - **Simplified directory layout**: Removed monorepo nesting for single-package use
 - **Direct root access**: Source, tests, examples, and config files now at root level

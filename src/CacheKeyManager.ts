@@ -136,7 +136,7 @@ export class CacheKeyManager {
     for (const tag of tags) {
       const keys = this.tagMap.get(tag);
       if (keys) {
-        keys.forEach(key => keySet.add(key));
+        keys.forEach((key) => keySet.add(key));
       }
     }
 

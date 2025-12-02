@@ -167,7 +167,7 @@ export interface ICacheAdapter {
   disconnect(): Promise<void>;
 
   /** Check if connected */
-  isConnected(): boolean;
+  getConnectionStatus(): boolean;
 
   /** Health check */
   healthCheck(): Promise<boolean>;

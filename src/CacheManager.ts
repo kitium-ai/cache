@@ -4,10 +4,20 @@
  */
 
 import { EventEmitter } from 'events';
-import { CacheKeyConfig, CacheOptions, CacheStats, ICacheAdapter, ICacheManager, InvalidationEvent, InvalidationStrategy, TTLConfig } from './types';
+import {
+  CacheKeyConfig,
+  CacheOptions,
+  CacheStats,
+  ConnectionPoolConfig,
+  ICacheAdapter,
+  ICacheManager,
+  InvalidationEvent,
+  InvalidationStrategy,
+  RedisConfig,
+  TTLConfig,
+} from './types';
 import { CacheKeyManager } from './CacheKeyManager';
 import { RedisAdapter } from './RedisAdapter';
-import { RedisConfig, ConnectionPoolConfig } from './types';
 
 export class CacheManager extends EventEmitter implements ICacheManager {
   private adapter: ICacheAdapter;
@@ -19,7 +29,7 @@ export class CacheManager extends EventEmitter implements ICacheManager {
     redisConfig: RedisConfig,
     poolConfig: ConnectionPoolConfig,
     keyConfig: CacheKeyConfig = {},
-    ttlConfig: TTLConfig = { defaultTTL: 3600, maxTTL: 86400, minTTL: 1 },
+    ttlConfig: TTLConfig = { defaultTTL: 3600, maxTTL: 86400, minTTL: 1 }
   ) {
     super();
     this.ttlConfig = ttlConfig;
@@ -172,7 +182,7 @@ export class CacheManager extends EventEmitter implements ICacheManager {
   async getKeys(pattern?: string): Promise<string[]> {
     const keys = await this.adapter.getKeys(pattern);
     // Remove the prefix/namespace from keys
-    return keys.map(key => {
+    return keys.map((key) => {
       const parts = this.keyManager.extractParts(key);
       return parts.join(':');
     });
@@ -294,7 +304,7 @@ export class CacheManager extends EventEmitter implements ICacheManager {
    * Emit invalidation event to all listeners
    */
   private emitInvalidationEvent(event: InvalidationEvent): void {
-    this.invalidationListeners.forEach(callback => {
+    this.invalidationListeners.forEach((callback) => {
       try {
         callback(event);
       } catch (error) {

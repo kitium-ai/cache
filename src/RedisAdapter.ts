@@ -3,8 +3,7 @@
  * Implements the ICacheAdapter interface using Redis backend
  */
 
-import { RedisClientType } from 'redis';
-import { CacheOptions, CacheStats, ICacheAdapter, InvalidationStrategy, RedisConfig } from './types';
+import { CacheOptions, CacheStats, ICacheAdapter, RedisConfig } from './types';
 import { RedisConnectionPool } from './RedisConnectionPool';
 import { CacheKeyManager } from './CacheKeyManager';
 
@@ -27,7 +26,7 @@ export class RedisAdapter implements ICacheAdapter {
     redisConfig: RedisConfig,
     poolConfig: any,
     keyManager: CacheKeyManager,
-    defaultTTL: number = 3600,
+    defaultTTL: number = 3600
   ) {
     this.pool = new RedisConnectionPool(redisConfig, poolConfig);
     this.keyManager = keyManager;
@@ -43,7 +42,9 @@ export class RedisAdapter implements ICacheAdapter {
       await this.pool.initialize();
       this.isConnected = true;
     } catch (error) {
-      throw new Error(`Failed to connect to Redis: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to connect to Redis: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -56,11 +57,13 @@ export class RedisAdapter implements ICacheAdapter {
       await this.pool.drain();
       this.isConnected = false;
     } catch (error) {
-      throw new Error(`Failed to disconnect from Redis: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to disconnect from Redis: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
-  isConnected(): boolean {
+  getConnectionStatus(): boolean {
     return this.isConnected;
   }
 
@@ -102,7 +105,9 @@ export class RedisAdapter implements ICacheAdapter {
       }
     } catch (error) {
       this.stats.misses++;
-      throw new Error(`Failed to get key ${key}: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get key ${key}: ${error instanceof Error ? error.message : String(error)}`
+      );
     } finally {
       this.pool.releaseConnection(client);
       this.updateStats();
@@ -143,7 +148,9 @@ export class RedisAdapter implements ICacheAdapter {
       this.stats.itemCount++;
       this.updateStats();
     } catch (error) {
-      throw new Error(`Failed to set key ${key}: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to set key ${key}: ${error instanceof Error ? error.message : String(error)}`
+      );
     } finally {
       this.pool.releaseConnection(client);
     }
@@ -162,7 +169,9 @@ export class RedisAdapter implements ICacheAdapter {
       }
       return false;
     } catch (error) {
-      throw new Error(`Failed to delete key ${key}: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to delete key ${key}: ${error instanceof Error ? error.message : String(error)}`
+      );
     } finally {
       this.pool.releaseConnection(client);
     }
@@ -174,7 +183,9 @@ export class RedisAdapter implements ICacheAdapter {
       const result = await client.exists(key);
       return result > 0;
     } catch (error) {
-      throw new Error(`Failed to check key existence: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to check key existence: ${error instanceof Error ? error.message : String(error)}`
+      );
     } finally {
       this.pool.releaseConnection(client);
     }
@@ -196,7 +207,9 @@ export class RedisAdapter implements ICacheAdapter {
       this.keyManager.clearTags();
       this.updateStats();
     } catch (error) {
-      throw new Error(`Failed to clear cache: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to clear cache: ${error instanceof Error ? error.message : String(error)}`
+      );
     } finally {
       this.pool.releaseConnection(client);
     }
@@ -205,11 +218,15 @@ export class RedisAdapter implements ICacheAdapter {
   async getKeys(pattern?: string): Promise<string[]> {
     const client = await this.pool.getConnection();
     try {
-      const searchPattern = pattern ? this.keyManager.buildPattern(pattern) : this.keyManager.buildPattern('*');
+      const searchPattern = pattern
+        ? this.keyManager.buildPattern(pattern)
+        : this.keyManager.buildPattern('*');
       const keys = await client.keys(searchPattern);
       return keys;
     } catch (error) {
-      throw new Error(`Failed to get keys: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get keys: ${error instanceof Error ? error.message : String(error)}`
+      );
     } finally {
       this.pool.releaseConnection(client);
     }
@@ -230,7 +247,9 @@ export class RedisAdapter implements ICacheAdapter {
 
       return keys.length;
     } catch (error) {
-      throw new Error(`Failed to invalidate pattern: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to invalidate pattern: ${error instanceof Error ? error.message : String(error)}`
+      );
     } finally {
       this.pool.releaseConnection(client);
     }
@@ -244,7 +263,7 @@ export class RedisAdapter implements ICacheAdapter {
       for (const tag of tags) {
         const tagKey = `tag:${tag}`;
         const keys = await client.sMembers(tagKey);
-        keys.forEach(key => keysToDelete.add(key));
+        keys.forEach((key) => keysToDelete.add(key));
         await client.del(tagKey);
       }
 
@@ -258,7 +277,9 @@ export class RedisAdapter implements ICacheAdapter {
 
       return keysToDelete.size;
     } catch (error) {
-      throw new Error(`Failed to invalidate by tags: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to invalidate by tags: ${error instanceof Error ? error.message : String(error)}`
+      );
     } finally {
       this.pool.releaseConnection(client);
     }

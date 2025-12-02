@@ -5,18 +5,21 @@ Enterprise-ready Redis abstraction layer with advanced caching capabilities. Pro
 ## Features
 
 ✨ **Enterprise-Ready**
+
 - Production-tested patterns
 - Comprehensive error handling
 - TypeScript first-class support
 - Full type safety
 
 🚀 **High Performance**
+
 - Redis connection pooling (configurable min/max connections)
 - Efficient key management with pattern matching
 - Batch operations for bulk cache management
 - Event-driven invalidation
 
 🔑 **Smart Key Management**
+
 - Hierarchical key organization with namespaces
 - Tag-based bulk invalidation
 - Pattern-based cache invalidation
@@ -24,11 +27,13 @@ Enterprise-ready Redis abstraction layer with advanced caching capabilities. Pro
 - Consistent key hashing for distribution
 
 ⏱️ **Flexible TTL Configuration**
+
 - Configurable default, min, and max TTL
 - Per-operation TTL override
 - Automatic TTL validation and bounds enforcement
 
 🎯 **Multiple Invalidation Strategies**
+
 - Pattern-based invalidation (wildcard matching)
 - Tag-based invalidation (bulk operations)
 - Manual invalidation
@@ -76,9 +81,9 @@ const cache = new CacheManager(
   },
   // TTL configuration
   {
-    defaultTTL: 3600,      // 1 hour
-    maxTTL: 86400,         // 24 hours
-    minTTL: 60,            // 1 minute
+    defaultTTL: 3600, // 1 hour
+    maxTTL: 86400, // 24 hours
+    minTTL: 60, // 1 minute
   }
 );
 
@@ -92,9 +97,13 @@ await cache.set('user:123', { id: 123, name: 'John' });
 const user = await cache.get('user:123');
 
 // Get or compute
-const product = await cache.getOrSet('product:456', async () => {
-  return await fetchProductFromDB(456);
-}, { ttl: 7200 });
+const product = await cache.getOrSet(
+  'product:456',
+  async () => {
+    return await fetchProductFromDB(456);
+  },
+  { ttl: 7200 }
+);
 
 // Disconnect
 await cache.disconnect();
@@ -134,15 +143,16 @@ await cache.set('key1', 'value1');
 await cache.set('key2', 'value2', { ttl: 7200 });
 
 // TTL too low? Automatically adjusted to minTTL
-await cache.set('key3', 'value3', { ttl: 10 });  // Adjusted to 60
+await cache.set('key3', 'value3', { ttl: 10 }); // Adjusted to 60
 
 // TTL too high? Automatically adjusted to maxTTL
-await cache.set('key4', 'value4', { ttl: 999999 });  // Adjusted to 86400
+await cache.set('key4', 'value4', { ttl: 999999 }); // Adjusted to 86400
 ```
 
 ### Cache Invalidation Strategies
 
 #### 1. **Pattern-Based Invalidation**
+
 Invalidate all keys matching a pattern:
 
 ```typescript
@@ -155,6 +165,7 @@ await cache.invalidatePattern('user:active:*');
 ```
 
 #### 2. **Tag-Based Invalidation**
+
 Bulk invalidation using tags:
 
 ```typescript
@@ -173,6 +184,7 @@ await cache.invalidateByTags(['users', 'dirty']);
 ```
 
 #### 3. **Manual Invalidation**
+
 Direct key deletion:
 
 ```typescript
@@ -184,6 +196,7 @@ const count = await cache.deleteMultiple(['user:123', 'user:456', 'user:789']);
 ```
 
 #### 4. **Event-Driven Invalidation**
+
 Listen to cache invalidation events:
 
 ```typescript
@@ -209,62 +222,79 @@ cache.offInvalidation(listenerFn);
 ### Cache Manager
 
 #### `new CacheManager(redisConfig, poolConfig, keyConfig?, ttlConfig?)`
+
 Create a new cache manager instance.
 
 #### `connect(): Promise<void>`
+
 Connect to Redis.
 
 #### `disconnect(): Promise<void>`
+
 Close all connections.
 
 #### `healthCheck(): Promise<boolean>`
+
 Check Redis connectivity.
 
 #### `get<T>(key: string): Promise<T | null>`
+
 Retrieve a cached value.
 
 #### `set<T>(key: string, value: T, options?: CacheOptions): Promise<void>`
+
 Store a value in cache.
 
 ```typescript
 interface CacheOptions {
-  ttl?: number;  // TTL in seconds
-  tags?: string[];  // Invalidation tags
+  ttl?: number; // TTL in seconds
+  tags?: string[]; // Invalidation tags
   invalidationStrategy?: InvalidationStrategy;
 }
 ```
 
 #### `getOrSet<T>(key: string, fn: () => Promise<T>, options?: CacheOptions): Promise<T>`
+
 Get cached value or compute and cache if not found.
 
 #### `delete(key: string): Promise<boolean>`
+
 Delete a key.
 
 #### `deleteMultiple(keys: string[]): Promise<number>`
+
 Delete multiple keys.
 
 #### `exists(key: string): Promise<boolean>`
+
 Check if key exists.
 
 #### `clear(): Promise<void>`
+
 Clear all cache.
 
 #### `getKeys(pattern?: string): Promise<string[]>`
+
 Get all keys matching pattern.
 
 #### `invalidatePattern(pattern: string): Promise<number>`
+
 Invalidate keys matching pattern.
 
 #### `invalidateByTags(tags: string[]): Promise<number>`
+
 Invalidate keys with specific tags.
 
 #### `onInvalidation(callback: (event: InvalidationEvent) => void): void`
+
 Listen to invalidation events.
 
 #### `offInvalidation(callback: (event: InvalidationEvent) => void): void`
+
 Remove invalidation listener.
 
 #### `getStats(): Promise<CacheStats>`
+
 Get cache statistics.
 
 ```typescript
@@ -280,6 +310,7 @@ interface CacheStats {
 ```
 
 #### `warmup(data: Record<string, unknown>, options?: CacheOptions): Promise<void>`
+
 Load multiple entries into cache.
 
 ### Key Manager
@@ -327,18 +358,18 @@ const sessionCache = cache.getKeyManager();
 sessionCache.setNamespace('sessions');
 
 // Keys will be segregated by namespace
-await cache.set('123', userData);  // Key: 'prefix:users:123'
+await cache.set('123', userData); // Key: 'prefix:users:123'
 ```
 
 ### Connection Pooling Configuration
 
 ```typescript
 const poolConfig = {
-  maxConnections: 20,           // Maximum concurrent connections
-  minConnections: 5,            // Minimum always-available connections
-  idleTimeoutMs: 30000,         // Close idle connections after 30s
-  acquireTimeoutMs: 5000,       // Timeout for acquiring connection
-  validationIntervalMs: 10000,  // Validate connections every 10s
+  maxConnections: 20, // Maximum concurrent connections
+  minConnections: 5, // Minimum always-available connections
+  idleTimeoutMs: 30000, // Close idle connections after 30s
+  acquireTimeoutMs: 5000, // Timeout for acquiring connection
+  validationIntervalMs: 10000, // Validate connections every 10s
 };
 ```
 

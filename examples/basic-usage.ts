@@ -57,9 +57,13 @@ async function basicExample(): Promise<void> {
 
     // 4. Set value with custom TTL
     console.log('\n4. Setting value with custom TTL...');
-    await cache.set('session:abc123', { sessionId: 'abc123', userId: 123 }, {
-      ttl: 1800, // 30 minutes
-    });
+    await cache.set(
+      'session:abc123',
+      { sessionId: 'abc123', userId: 123 },
+      {
+        ttl: 1800, // 30 minutes
+      }
+    );
     console.log('Session cached with 30-minute TTL');
 
     // 5. Get or compute
@@ -97,7 +101,6 @@ async function basicExample(): Promise<void> {
     console.log('\n10. Health check...');
     const healthy = await cache.healthCheck();
     console.log('Cache is healthy:', healthy);
-
   } catch (error) {
     console.error('Error:', error instanceof Error ? error.message : String(error));
   } finally {
