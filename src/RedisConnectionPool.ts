@@ -229,7 +229,10 @@ export class RedisConnectionPool {
       await client.connect();
       return client as any;
     } catch (error) {
-      this.logger.error('Failed to create Redis connection', error instanceof Error ? error : undefined);
+      this.logger.error(
+        'Failed to create Redis connection',
+        error instanceof Error ? error : undefined
+      );
       client.quit();
       throw error;
     }

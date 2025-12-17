@@ -118,9 +118,11 @@ export class RedisAdapter implements ICacheAdapter {
     }
 
     try {
-      const value = await this.connectionHelper.withConnection(async (client): Promise<string | null> => {
-        return await this.runCommand('get', () => client.get(key));
-      });
+      const value = await this.connectionHelper.withConnection(
+        async (client): Promise<string | null> => {
+          return await this.runCommand('get', () => client.get(key));
+        }
+      );
 
       if (value) {
         this.statsManager.recordHit();
@@ -266,7 +268,9 @@ export class RedisAdapter implements ICacheAdapter {
 
         for (const tag of tags) {
           const tagKey = `tag:${tag}`;
-          const keys = (await this.runCommand('sMembers', () => client.sMembers(tagKey))) as string[];
+          const keys = (await this.runCommand('sMembers', () =>
+            client.sMembers(tagKey)
+          )) as string[];
           keys.forEach((key: string) => keysToDelete.add(key));
           await this.runCommand('del', () => client.del(tagKey));
         }
@@ -305,7 +309,7 @@ export class RedisAdapter implements ICacheAdapter {
 
   private async executeWithRetry<T>(fn: () => Promise<T>): Promise<T> {
     const policy = this.redisConfig.retryPolicy ?? { maxAttempts: 1, backoffMs: 0, jitterMs: 0 };
-    
+
     // Use manual retry logic since utils-ts retry has different interface
     let attempt = 0;
     let lastError: unknown;
@@ -409,7 +413,9 @@ export class RedisAdapter implements ICacheAdapter {
         cursor = result.cursor;
         const tags = result.keys as string[];
         for (const tagKey of tags) {
-          const keys = (await this.runCommand('sMembers', () => client.sMembers(tagKey))) as string[];
+          const keys = (await this.runCommand('sMembers', () =>
+            client.sMembers(tagKey)
+          )) as string[];
           const tag = tagKey.replace(/^tag:/, '');
           keys.forEach((key: string) => this.keyManager.registerKeyWithTags(key, [tag]));
         }

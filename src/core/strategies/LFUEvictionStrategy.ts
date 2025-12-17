@@ -48,10 +48,7 @@ export class LFUEvictionStrategy<K, V> implements IEvictionStrategy<K, V> {
       const accessTime = this.lastAccessTime.get(key) ?? 0;
 
       // Select by minimum frequency, then by oldest access time
-      if (
-        freq < lfuFreq ||
-        (freq === lfuFreq && accessTime < lfuTime)
-      ) {
+      if (freq < lfuFreq || (freq === lfuFreq && accessTime < lfuTime)) {
         lfuFreq = freq;
         lfuTime = accessTime;
         lfuKey = key;

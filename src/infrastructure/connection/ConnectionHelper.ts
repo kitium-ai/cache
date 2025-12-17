@@ -23,9 +23,7 @@ export class ConnectionHelper {
    *   return await client.get(key);
    * });
    */
-  async withConnection<T>(
-    operation: (client: any) => Promise<T>
-  ): Promise<T> {
+  async withConnection<T>(operation: (client: any) => Promise<T>): Promise<T> {
     const connection = await this.pool.getConnection();
     try {
       return await operation(connection);
@@ -46,9 +44,7 @@ export class ConnectionHelper {
    *   ]);
    * });
    */
-  async withConnectionBatch<T>(
-    operation: (client: any) => Promise<T[]>
-  ): Promise<T[]> {
+  async withConnectionBatch<T>(operation: (client: any) => Promise<T[]>): Promise<T[]> {
     const connection = await this.pool.getConnection();
     try {
       return await operation(connection);

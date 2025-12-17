@@ -1,8 +1,8 @@
 export const LogLevel = {
-  INFO: "info",
-  WARN: "warn",
-  ERROR: "error",
-  DEBUG: "debug",
+  INFO: 'info',
+  WARN: 'warn',
+  ERROR: 'error',
+  DEBUG: 'debug',
 } as const;
 
 export type LoggerConfig = Record<string, unknown>;
@@ -46,4 +46,3 @@ export function createLogger(_environment: string, _context?: Record<string, unk
 export function createMockLogger(): MockLogger {
   return mockLogger;
 }
-

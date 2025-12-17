@@ -6,9 +6,20 @@
  * - Advanced cache key management
  * - Flexible TTL configuration
  * - Multiple invalidation strategies
- * - Pluggable eviction policies (FIFO, LRU, LFU)
+ * - Pluggable eviction policies (FIFO, LRU, LFU, Windowed TinyLFU)
  * - Compression and encryption support
  * - Type-safe operations
+ * - Loading cache with refresh-ahead
+ * - Distributed tracing and observability
+ * - Circuit breaker patterns
+ * - Redis clustering support
+ * - Multi-tenancy with resource isolation
+ * - Performance profiling and optimization
+ * - Framework adapters (Express, Fastify, NestJS)
+ * - Multi-region replication
+ * - Redis modules support (RediSearch, RedisJSON, etc.)
+ * - Persistence and backup management
+ * - Chaos engineering tools
  */
 
 // Core classes
@@ -17,6 +28,25 @@ export { CacheKeyManager } from './CacheKeyManager';
 export { RedisAdapter } from './RedisAdapter';
 export { RedisConnectionPool } from './RedisConnectionPool';
 export { InMemoryCache } from './InMemoryCache';
+
+// Advanced caching features
+export { LoadingCache } from './LoadingCache';
+export { WindowedTinyLFUEvictionStrategy } from './core/strategies/WindowedTinyLFUEvictionStrategy';
+export { CacheTracingManager } from './infrastructure/tracing/CacheTracingManager';
+export { CircuitBreaker } from './infrastructure/resilience/CircuitBreaker';
+export { RedisClusterManager } from './cluster/RedisClusterManager';
+export { MultiTenantCacheManager } from './core/services/MultiTenantCacheManager';
+export { CachePerformanceProfiler } from './core/services/CachePerformanceProfiler';
+export {
+  createExpressCacheMiddleware,
+  createFastifyCachePlugin,
+  createNestJSCacheInterceptor,
+  createHTTPCacheAdapter,
+  Cacheable,
+  CacheEvict,
+} from './infrastructure/adapters/FrameworkAdapters';
+export { MultiRegionCacheManager } from './cluster/MultiRegionCacheManager';
+export { PersistenceManager, ChaosOrchestrator } from './persistence/PersistenceManager';
 
 // Infrastructure services
 export { CacheErrorFactory } from './infrastructure/error/CacheErrorFactory';
@@ -52,4 +82,21 @@ export {
   type ICacheManager,
   type MemoryCacheConfig,
   type InstrumentationHooks,
+  // Advanced feature types
+  type LoadingCacheOptions,
+  type CacheLoader,
+  type EvictionWindow,
+  type TracingConfig,
+  type CircuitBreakerConfig,
+  type ClusterConfig,
+  type TenantConfig,
+  type PerformanceProfile,
+  type FrameworkAdapterConfig,
+  type MultiRegionConfig,
+  type RedisModuleConfig,
+  type BackupConfig,
+  type BackupMetadata,
+  type RestoreOptions,
+  type ChaosConfig,
+  type ChaosEvent,
 } from './types';

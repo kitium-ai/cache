@@ -22,9 +22,7 @@ export class CacheStatsManager {
     lastUpdated: Date.now(),
   };
 
-  constructor(
-    private readonly instrumentation?: InstrumentationHooks
-  ) {}
+  constructor(private readonly instrumentation?: InstrumentationHooks) {}
 
   /**
    * Record a cache hit
@@ -123,9 +121,7 @@ export class CacheStatsManager {
    */
   private updateHitRate(): void {
     const total = this.stats.hits + this.stats.misses;
-    this.stats.hitRate = total > 0
-      ? (this.stats.hits / total) * 100
-      : 0;
+    this.stats.hitRate = total > 0 ? (this.stats.hits / total) * 100 : 0;
   }
 
   /**

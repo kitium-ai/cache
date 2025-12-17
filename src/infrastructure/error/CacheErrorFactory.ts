@@ -36,10 +36,7 @@ export class CacheErrorFactory {
       source: '@kitiumai/cache',
     });
 
-    this.logger.error(
-      `${context.operation} failed`,
-      kitiumError
-    );
+    this.logger.error(`${context.operation} failed`, kitiumError);
 
     return kitiumError;
   }
@@ -57,10 +54,7 @@ export class CacheErrorFactory {
       source: '@kitiumai/cache',
     });
 
-    this.logger.error(
-      `${context.operation} failed`,
-      kitiumError
-    );
+    this.logger.error(`${context.operation} failed`, kitiumError);
 
     return kitiumError;
   }
@@ -109,11 +103,7 @@ export class CacheErrorFactory {
   /**
    * Create a cache operation error (get, set, delete, etc)
    */
-  operationFailed(
-    operation: string,
-    key?: string,
-    cause?: unknown
-  ): KitiumError {
+  operationFailed(operation: string, key?: string, cause?: unknown): KitiumError {
     return this.wrapError(cause ?? new Error(`${operation} failed`), {
       operation,
       key,

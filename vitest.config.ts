@@ -1,5 +1,5 @@
 import baseConfig from '@kitiumai/config/vitest.config.base.js';
-import { fileURLToPath } from "node:url";
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -11,13 +11,11 @@ export default defineConfig({
     exclude: ['**/node_modules/**', '**/dist/**'],
     setupFiles: ['./src/__tests__/setup.ts'],
     alias: {
-      "@kitiumai/logger": fileURLToPath(
-        new URL("./vitest.logger.mock.ts", import.meta.url),
-      ),
+      '@kitiumai/logger': fileURLToPath(new URL('./vitest.logger.mock.ts', import.meta.url)),
     },
     server: {
       deps: {
-        inline: ["@kitiumai/error", "@kitiumai/logger"],
+        inline: ['@kitiumai/error', '@kitiumai/logger'],
       },
     },
     coverage: {

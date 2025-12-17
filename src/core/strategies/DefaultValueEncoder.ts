@@ -17,9 +17,7 @@ export class DefaultValueEncoder implements IValueEncoder {
 
   constructor(encryptionKeyString?: string) {
     if (encryptionKeyString) {
-      this.encryptionKey = createHash('sha256')
-        .update(encryptionKeyString)
-        .digest();
+      this.encryptionKey = createHash('sha256').update(encryptionKeyString).digest();
     }
   }
 
@@ -51,9 +49,7 @@ export class DefaultValueEncoder implements IValueEncoder {
     return JSON.stringify({
       compressed: compress,
       encrypted: Boolean(encrypt),
-      payload: Buffer.isBuffer(payload)
-        ? payload.toString('base64')
-        : String(payload),
+      payload: Buffer.isBuffer(payload) ? payload.toString('base64') : String(payload),
     });
   }
 
