@@ -22,6 +22,7 @@ export class RedisConnectionPool {
     timeout: NodeJS.Timeout;
   }> = [];
   private readonly logger: ReturnType<typeof getLogger>;
+  private validationIntervalHandle?: NodeJS.Timeout;
 
   constructor(redisConfig: RedisConfig, poolConfig: ConnectionPoolConfig) {
     const baseLogger = getLogger();
@@ -161,6 +162,9 @@ export class RedisConnectionPool {
    * Drain the pool and close all connections
    */
   async drain(): Promise<void> {
+    // Stop validation interval first to prevent new connections being created
+    this.stopValidationInterval();
+
     // Wait for any in-use connections to be released
     let attempts = 0;
     while (this.inUseConnections.size > 0 && attempts < 30) {
@@ -268,7 +272,7 @@ export class RedisConnectionPool {
    * Private: Start periodic validation of connections
    */
   private startValidationInterval(): void {
-    setInterval(async () => {
+    this.validationIntervalHandle = setInterval(async () => {
       if (!this.isInitialized) {
         return;
       }
@@ -295,6 +299,15 @@ export class RedisConnectionPool {
         }
       }
     }, this.config.validationIntervalMs);
+  }
+
+  /**
+   * Private: Stop the validation interval
+   */
+  private stopValidationInterval(): void {
+    if (this.validationIntervalHandle !== undefined) {
+      clearInterval(this.validationIntervalHandle);
+    }
   }
 
   /**

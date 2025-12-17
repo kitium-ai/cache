@@ -169,9 +169,10 @@ export interface InvalidationEvent {
 }
 
 /**
- * Cache adapter interface for different cache backends
+ * Core cache operations interface
+ * Provides basic get/set/delete operations
  */
-export interface ICacheAdapter {
+export interface ICacheOperations {
   /** Get a value from cache */
   get<T>(key: string): Promise<T | null>;
 
@@ -189,16 +190,34 @@ export interface ICacheAdapter {
 
   /** Get all keys matching pattern */
   getKeys(pattern?: string): Promise<string[]>;
+}
 
+/**
+ * Cache invalidation interface
+ * Provides pattern and tag-based invalidation
+ */
+export interface ICacheInvalidation {
   /** Invalidate keys matching a pattern */
   invalidatePattern(pattern: string): Promise<number>;
 
   /** Invalidate keys with specific tags */
   invalidateByTags(tags: string[]): Promise<number>;
+}
 
+/**
+ * Cache statistics interface
+ * Provides access to cache metrics
+ */
+export interface ICacheMetrics {
   /** Get cache statistics */
   getStats(): Promise<CacheStats>;
+}
 
+/**
+ * Cache lifecycle interface
+ * Provides connection and health management
+ */
+export interface ICacheLifecycle {
   /** Connect to cache backend */
   connect(): Promise<void>;
 
@@ -211,6 +230,16 @@ export interface ICacheAdapter {
   /** Health check */
   healthCheck(): Promise<boolean>;
 }
+
+/**
+ * Composite cache adapter interface
+ * Implements all cache operation capabilities
+ */
+export interface ICacheAdapter
+  extends ICacheOperations,
+    ICacheInvalidation,
+    ICacheMetrics,
+    ICacheLifecycle {}
 
 /**
  * Cache manager interface

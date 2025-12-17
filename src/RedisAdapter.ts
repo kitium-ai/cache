@@ -5,7 +5,6 @@
 
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'crypto';
 import { gzipSync, gunzipSync } from 'zlib';
-import { InternalError, toKitiumError } from '@kitiumai/error';
 import { getLogger, type IAdvancedLogger } from '@kitiumai/logger';
 import { sleep, timeout } from '@kitiumai/utils-ts';
 import {
@@ -17,25 +16,21 @@ import {
 } from './types';
 import { RedisConnectionPool } from './RedisConnectionPool';
 import { CacheKeyManager } from './CacheKeyManager';
+import { CacheErrorFactory } from './infrastructure/error/CacheErrorFactory';
+import { ConnectionHelper } from './infrastructure/connection/ConnectionHelper';
+import { CacheStatsManager } from './core/services/CacheStatsManager';
 
 export class RedisAdapter implements ICacheAdapter {
   private pool: RedisConnectionPool;
   private keyManager: CacheKeyManager;
-  private stats: CacheStats = {
-    hits: 0,
-    misses: 0,
-    evictions: 0,
-    sizeBytes: 0,
-    itemCount: 0,
-    hitRate: 0,
-    lastUpdated: Date.now(),
-  };
+  private statsManager: CacheStatsManager;
+  private errorFactory: CacheErrorFactory;
+  private connectionHelper: ConnectionHelper;
   private defaultTTL: number;
   private isConnected: boolean = false;
   private redisConfig: RedisConfig;
   private commandTimeoutMs?: number;
   private instrumentation?: InstrumentationHooks;
-  private statsPersistKey: string;
   private encryptionKey?: Buffer;
   private logger: ReturnType<typeof getLogger>;
 
@@ -61,10 +56,14 @@ export class RedisAdapter implements ICacheAdapter {
     if (instrumentation !== undefined) {
       this.instrumentation = instrumentation;
     }
-    this.statsPersistKey = this.keyManager.buildNamespacedKey('meta', 'stats');
     if (redisConfig.encryptionKey !== undefined) {
       this.encryptionKey = createHash('sha256').update(redisConfig.encryptionKey).digest();
     }
+
+    // Initialize new services
+    this.statsManager = new CacheStatsManager(instrumentation);
+    this.errorFactory = new CacheErrorFactory(this.logger);
+    this.connectionHelper = new ConnectionHelper(this.pool);
   }
 
   async connect(): Promise<void> {
@@ -77,16 +76,7 @@ export class RedisAdapter implements ICacheAdapter {
       this.isConnected = true;
       await this.reconcileTags();
     } catch (error) {
-      const kitiumError = toKitiumError(error, {
-        code: 'cache/redis_connection_failed',
-        message: 'Failed to connect to Redis',
-        severity: 'error',
-        kind: 'dependency',
-        retryable: true,
-        source: '@kitiumai/cache',
-      });
-      this.logger.error('Failed to connect to Redis', kitiumError);
-      throw kitiumError;
+      throw this.errorFactory.connectionFailed('connect', error);
     }
   }
 
@@ -99,16 +89,7 @@ export class RedisAdapter implements ICacheAdapter {
       await this.pool.drain();
       this.isConnected = false;
     } catch (error) {
-      const kitiumError = toKitiumError(error, {
-        code: 'cache/redis_disconnect_failed',
-        message: 'Failed to disconnect from Redis',
-        severity: 'error',
-        kind: 'dependency',
-        retryable: false,
-        source: '@kitiumai/cache',
-      });
-      this.logger.error('Failed to disconnect from Redis', kitiumError);
-      throw kitiumError;
+      throw this.errorFactory.connectionFailed('disconnect', error);
     }
   }
 
@@ -132,297 +113,181 @@ export class RedisAdapter implements ICacheAdapter {
 
   async get<T>(key: string): Promise<T | null> {
     if (!this.keyManager.isValidKey(key)) {
-      this.stats.misses++;
+      this.statsManager.recordMiss();
       return null;
     }
 
-    const client = await this.pool.getConnection();
     try {
-      const value = await this.runCommand('get', () => client.get(key));
+      const value = await this.connectionHelper.withConnection(async (client): Promise<string | null> => {
+        return await this.runCommand('get', () => client.get(key));
+      });
 
       if (value) {
-        this.stats.hits++;
-        return this.decodeValue<T>(value);
+        this.statsManager.recordHit();
+        return this.decodeValue<T>(value as string);
       } else {
-        this.stats.misses++;
+        this.statsManager.recordMiss();
         return null;
       }
     } catch (error) {
-      this.stats.misses++;
-      const kitiumError = toKitiumError(error, {
-        code: 'cache/get_failed',
-        message: `Failed to get key ${key}`,
-        severity: 'error',
-        kind: 'dependency',
-        retryable: true,
-        source: '@kitiumai/cache',
-      });
-      this.logger.error(`Failed to get key ${key}`, kitiumError);
-      throw kitiumError;
+      this.statsManager.recordMiss();
+      throw this.errorFactory.operationFailed('get', key, error);
     } finally {
-      this.pool.releaseConnection(client);
-      this.updateStats();
+      this.statsManager.updateAndNotify();
     }
   }
 
   async set<T>(key: string, value: T, options?: CacheOptions): Promise<void> {
     if (!this.keyManager.isValidKey(key)) {
-      throw new InternalError({
-        code: 'cache/invalid_key',
-        message: `Invalid cache key: ${key}`,
-        severity: 'error',
-        kind: 'validation',
-        retryable: false,
-        source: '@kitiumai/cache',
-      });
+      throw this.errorFactory.validationFailed(`Invalid cache key: ${key}`);
     }
 
-    const client = await this.pool.getConnection();
     try {
-      const serialized = this.encodeValue(value, options);
-      const ttl = options?.ttl ?? this.defaultTTL;
+      await this.connectionHelper.withConnection(async (client) => {
+        const serialized = this.encodeValue(value, options);
+        const ttl = options?.ttl ?? this.defaultTTL;
 
-      if (ttl > 0) {
-        await this.runCommand('setEx', () => client.setEx(key, ttl, serialized));
-      } else {
-        await this.runCommand('set', () => client.set(key, serialized));
-      }
+        if (ttl > 0) {
+          await this.runCommand('setEx', () => client.setEx(key, ttl, serialized));
+        } else {
+          await this.runCommand('set', () => client.set(key, serialized));
+        }
 
-      // Register key with tags if provided
-      if (options?.tags && options.tags.length > 0) {
-        this.keyManager.registerKeyWithTags(key, options.tags);
+        // Register key with tags if provided
+        if (options?.tags && options.tags.length > 0) {
+          this.keyManager.registerKeyWithTags(key, options.tags);
 
-        // Store tags in Redis for persistence
-        for (const tag of options.tags) {
-          const tagKey = `tag:${tag}`;
-          await this.runCommand('sAdd', () => client.sAdd(tagKey, key));
-          // Set TTL on tag sets
-          if (ttl > 0) {
-            await this.runCommand('expire', () => client.expire(tagKey, ttl));
+          // Store tags in Redis for persistence
+          for (const tag of options.tags) {
+            const tagKey = `tag:${tag}`;
+            await this.runCommand('sAdd', () => client.sAdd(tagKey, key));
+            // Set TTL on tag sets
+            if (ttl > 0) {
+              await this.runCommand('expire', () => client.expire(tagKey, ttl));
+            }
           }
         }
-      }
 
-      this.stats.itemCount++;
-      this.updateStats();
-    } catch (error) {
-      const kitiumError = toKitiumError(error, {
-        code: 'cache/set_failed',
-        message: `Failed to set key ${key}`,
-        severity: 'error',
-        kind: 'dependency',
-        retryable: true,
-        source: '@kitiumai/cache',
+        this.statsManager.recordSet();
       });
-      this.logger.error(`Failed to set key ${key}`, kitiumError);
-      throw kitiumError;
-    } finally {
-      this.pool.releaseConnection(client);
+      this.statsManager.updateAndNotify();
+    } catch (error) {
+      throw this.errorFactory.operationFailed('set', key, error);
     }
   }
 
   async delete(key: string): Promise<boolean> {
-    const client = await this.pool.getConnection();
     try {
-      const result = await this.runCommand('del', () => client.del(key));
+      const result = await this.connectionHelper.withConnection(async (client): Promise<number> => {
+        return await this.runCommand('del', () => client.del(key));
+      });
+
       if (result > 0) {
         this.keyManager.unregisterKey(key);
-        this.stats.itemCount--;
-        this.stats.evictions++;
-        this.updateStats();
+        this.statsManager.recordDelete();
+        this.statsManager.recordEvictions(1);
+        this.statsManager.updateAndNotify();
         return true;
       }
       return false;
     } catch (error) {
-      const kitiumError = toKitiumError(error, {
-        code: 'cache/delete_failed',
-        message: `Failed to delete key ${key}`,
-        severity: 'error',
-        kind: 'dependency',
-        retryable: true,
-        source: '@kitiumai/cache',
-      });
-      this.logger.error(`Failed to delete key ${key}`, kitiumError);
-      throw kitiumError;
-    } finally {
-      this.pool.releaseConnection(client);
+      throw this.errorFactory.operationFailed('delete', key, error);
     }
   }
 
   async exists(key: string): Promise<boolean> {
-    const client = await this.pool.getConnection();
     try {
-      const result = await this.runCommand('exists', () => client.exists(key));
+      const result = await this.connectionHelper.withConnection(async (client): Promise<number> => {
+        return await this.runCommand('exists', () => client.exists(key));
+      });
       return result > 0;
     } catch (error) {
-      const kitiumError = toKitiumError(error, {
-        code: 'cache/exists_failed',
-        message: 'Failed to check key existence',
-        severity: 'error',
-        kind: 'dependency',
-        retryable: true,
-        source: '@kitiumai/cache',
-      });
-      this.logger.error('Failed to check key existence', kitiumError);
-      throw kitiumError;
-    } finally {
-      this.pool.releaseConnection(client);
+      throw this.errorFactory.operationFailed('exists', key, error);
     }
   }
 
   async clear(): Promise<void> {
-    const client = await this.pool.getConnection();
     try {
-      // Get all keys with our prefix/namespace
-      const pattern = this.keyManager.buildPattern('*');
-      const keys = await this.scanKeys(client, pattern);
+      await this.connectionHelper.withConnection(async (client) => {
+        // Get all keys with our prefix/namespace
+        const pattern = this.keyManager.buildPattern('*');
+        const keys = await this.scanKeys(client, pattern);
 
-      if (keys.length > 0) {
-        await this.runCommand('del', () => client.del(keys));
-        this.stats.evictions += keys.length;
-        this.stats.itemCount = 0;
-      }
+        if (keys.length > 0) {
+          await this.runCommand('del', () => client.del(keys));
+          this.statsManager.recordEvictions(keys.length);
+        }
 
-      this.keyManager.clearTags();
-      this.updateStats();
-    } catch (error) {
-      const kitiumError = toKitiumError(error, {
-        code: 'cache/clear_failed',
-        message: 'Failed to clear cache',
-        severity: 'error',
-        kind: 'dependency',
-        retryable: true,
-        source: '@kitiumai/cache',
+        this.keyManager.clearTags();
       });
-      this.logger.error('Failed to clear cache', kitiumError);
-      throw kitiumError;
-    } finally {
-      this.pool.releaseConnection(client);
+      this.statsManager.updateAndNotify();
+    } catch (error) {
+      throw this.errorFactory.operationFailed('clear', undefined, error);
     }
   }
 
   async getKeys(pattern?: string): Promise<string[]> {
-    const client = await this.pool.getConnection();
     try {
-      const searchPattern = pattern
-        ? this.keyManager.buildPattern(pattern)
-        : this.keyManager.buildPattern('*');
-      const keys = await this.scanKeys(client, searchPattern);
-      return keys;
-    } catch (error) {
-      const kitiumError = toKitiumError(error, {
-        code: 'cache/get_keys_failed',
-        message: 'Failed to get keys',
-        severity: 'error',
-        kind: 'dependency',
-        retryable: true,
-        source: '@kitiumai/cache',
+      return await this.connectionHelper.withConnection(async (client) => {
+        const searchPattern = pattern
+          ? this.keyManager.buildPattern(pattern)
+          : this.keyManager.buildPattern('*');
+        return await this.scanKeys(client, searchPattern);
       });
-      this.logger.error('Failed to get keys', kitiumError);
-      throw kitiumError;
-    } finally {
-      this.pool.releaseConnection(client);
+    } catch (error) {
+      throw this.errorFactory.operationFailed('getKeys', undefined, error);
     }
   }
 
   async invalidatePattern(pattern: string): Promise<number> {
-    const client = await this.pool.getConnection();
     try {
-      const searchPattern = this.keyManager.buildPattern(pattern);
-      const keys = await this.scanKeys(client, searchPattern);
+      const keysCount = await this.connectionHelper.withConnection(async (client) => {
+        const searchPattern = this.keyManager.buildPattern(pattern);
+        const keys = await this.scanKeys(client, searchPattern);
 
-      if (keys.length > 0) {
-        await this.runCommand('del', () => client.del(keys));
-        this.stats.evictions += keys.length;
-        this.stats.itemCount -= keys.length;
-        this.updateStats();
-      }
+        if (keys.length > 0) {
+          await this.runCommand('del', () => client.del(keys));
+          this.statsManager.recordEvictions(keys.length);
+        }
 
-      return keys.length;
-    } catch (error) {
-      const kitiumError = toKitiumError(error, {
-        code: 'cache/invalidate_pattern_failed',
-        message: 'Failed to invalidate pattern',
-        severity: 'error',
-        kind: 'dependency',
-        retryable: true,
-        source: '@kitiumai/cache',
+        return keys.length;
       });
-      this.logger.error('Failed to invalidate pattern', kitiumError);
-      throw kitiumError;
-    } finally {
-      this.pool.releaseConnection(client);
+      this.statsManager.updateAndNotify();
+      return keysCount;
+    } catch (error) {
+      throw this.errorFactory.operationFailed('invalidatePattern', undefined, error);
     }
   }
 
   async invalidateByTags(tags: string[]): Promise<number> {
-    const client = await this.pool.getConnection();
     try {
-      const keysToDelete = new Set<string>();
+      const keysCount = await this.connectionHelper.withConnection(async (client) => {
+        const keysToDelete = new Set<string>();
 
-      for (const tag of tags) {
-        const tagKey = `tag:${tag}`;
-        const keys = await this.runCommand('sMembers', () => client.sMembers(tagKey));
-        keys.forEach((key) => keysToDelete.add(key));
-        await this.runCommand('del', () => client.del(tagKey));
-      }
+        for (const tag of tags) {
+          const tagKey = `tag:${tag}`;
+          const keys = (await this.runCommand('sMembers', () => client.sMembers(tagKey))) as string[];
+          keys.forEach((key: string) => keysToDelete.add(key));
+          await this.runCommand('del', () => client.del(tagKey));
+        }
 
-      if (keysToDelete.size > 0) {
-        const keyArray = Array.from(keysToDelete);
-        await this.runCommand('del', () => client.del(keyArray));
-        this.stats.evictions += keyArray.length;
-        this.stats.itemCount -= keyArray.length;
-        this.updateStats();
-      }
+        if (keysToDelete.size > 0) {
+          const keyArray = Array.from(keysToDelete);
+          await this.runCommand('del', () => client.del(keyArray));
+          this.statsManager.recordEvictions(keyArray.length);
+        }
 
-      return keysToDelete.size;
-    } catch (error) {
-      const kitiumError = toKitiumError(error, {
-        code: 'cache/invalidate_tags_failed',
-        message: 'Failed to invalidate by tags',
-        severity: 'error',
-        kind: 'dependency',
-        retryable: true,
-        source: '@kitiumai/cache',
+        return keysToDelete.size;
       });
-      this.logger.error('Failed to invalidate by tags', kitiumError);
-      throw kitiumError;
-    } finally {
-      this.pool.releaseConnection(client);
+      this.statsManager.updateAndNotify();
+      return keysCount;
+    } catch (error) {
+      throw this.errorFactory.operationFailed('invalidateByTags', undefined, error);
     }
   }
 
   async getStats(): Promise<CacheStats> {
-    return { ...this.stats };
-  }
-
-  /**
-   * Private: Update statistics
-   */
-  private updateStats(): void {
-    this.stats.hitRate =
-      this.stats.hits + this.stats.misses > 0
-        ? (this.stats.hits / (this.stats.hits + this.stats.misses)) * 100
-        : 0;
-    this.stats.lastUpdated = Date.now();
-    this.instrumentation?.onStats?.({ ...this.stats });
-    void this.persistStats();
-  }
-
-  private async persistStats(): Promise<void> {
-    if (!this.isConnected) {
-      return;
-    }
-    try {
-      const client = await this.pool.getConnection();
-      await this.runCommand('set', () =>
-        client.set(this.statsPersistKey, JSON.stringify(this.stats), {
-          EX: 600, // eslint-disable-line @typescript-eslint/naming-convention
-        })
-      );
-    } catch (error) {
-      this.instrumentation?.onError?.(error as Error);
-    }
+    return this.statsManager.snapshot();
   }
 
   private async runCommand<T>(command: string, fn: () => Promise<T>): Promise<T> {
@@ -460,14 +325,7 @@ export class RedisAdapter implements ICacheAdapter {
       }
     }
 
-    throw toKitiumError(lastError, {
-      code: 'cache/retry_exhausted',
-      message: 'Redis operation failed after retries',
-      severity: 'error',
-      kind: 'dependency',
-      retryable: false,
-      source: '@kitiumai/cache',
-    });
+    throw this.errorFactory.retryExhausted(lastError as Error);
   }
 
   private async withTimeout<T>(promise: Promise<T>): Promise<T> {
@@ -478,14 +336,7 @@ export class RedisAdapter implements ICacheAdapter {
     try {
       return await timeout(promise, this.commandTimeoutMs, 'Redis command timed out');
     } catch (error) {
-      throw toKitiumError(error, {
-        code: 'cache/command_timeout',
-        message: 'Redis command timed out',
-        severity: 'error',
-        kind: 'dependency',
-        retryable: true,
-        source: '@kitiumai/cache',
-      });
+      throw this.errorFactory.commandTimeout(error as Error);
     }
   }
 
@@ -556,11 +407,11 @@ export class RedisAdapter implements ICacheAdapter {
         )) as { cursor: number; keys: string[] };
         /* eslint-enable @typescript-eslint/naming-convention */
         cursor = result.cursor;
-        const tags = result.keys;
+        const tags = result.keys as string[];
         for (const tagKey of tags) {
-          const keys = await this.runCommand('sMembers', () => client.sMembers(tagKey));
+          const keys = (await this.runCommand('sMembers', () => client.sMembers(tagKey))) as string[];
           const tag = tagKey.replace(/^tag:/, '');
-          keys.forEach((key) => this.keyManager.registerKeyWithTags(key, [tag]));
+          keys.forEach((key: string) => this.keyManager.registerKeyWithTags(key, [tag]));
         }
       } while (cursor !== 0);
     } catch (error) {

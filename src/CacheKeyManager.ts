@@ -146,10 +146,22 @@ export class CacheKeyManager {
 
   /**
    * Remove a key from all tag mappings
+   * Cleans up empty tag entries to prevent memory leaks
    */
   unregisterKey(key: string): void {
-    for (const tagKeys of this.tagMap.values()) {
+    const tagsToDelete: string[] = [];
+
+    for (const [tag, tagKeys] of this.tagMap.entries()) {
       tagKeys.delete(key);
+      // Clean up empty tag entries to prevent memory leak
+      if (tagKeys.size === 0) {
+        tagsToDelete.push(tag);
+      }
+    }
+
+    // Remove empty tag entries
+    for (const tag of tagsToDelete) {
+      this.tagMap.delete(tag);
     }
   }
 
@@ -208,6 +220,26 @@ export class CacheKeyManager {
       totalTags: this.tagMap.size,
       keysPerTag,
     };
+  }
+
+  /**
+   * Cleanup empty tags from the map
+   * Call periodically to remove accumulated empty tag entries
+   */
+  cleanupEmptyTags(): number {
+    const tagsToDelete: string[] = [];
+
+    for (const [tag, keys] of this.tagMap.entries()) {
+      if (keys.size === 0) {
+        tagsToDelete.push(tag);
+      }
+    }
+
+    for (const tag of tagsToDelete) {
+      this.tagMap.delete(tag);
+    }
+
+    return tagsToDelete.length;
   }
 
   /**
