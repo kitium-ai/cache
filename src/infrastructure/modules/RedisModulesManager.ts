@@ -4,9 +4,9 @@
  * Supports RediSearch, RedisJSON, RedisGraph, RedisTimeSeries, etc.
  */
 
-import { CacheManager } from '../CacheManager';
 import { getLogger } from '@kitiumai/logger';
-import type { RedisConfig, ConnectionPoolConfig, CacheKeyConfig, TTLConfig } from '../types';
+
+import { CacheManager } from '../../CacheManager';
 
 export interface RedisModule {
   name: string;
@@ -57,8 +57,8 @@ export interface TimeSeriesOptions {
  * Provides high-level APIs for Redis modules
  */
 export class RedisModulesManager {
-  private logger = getLogger().child({ component: 'redis-modules' });
-  private modules = new Map<string, RedisModule>();
+  private readonly logger = getLogger().child({ component: 'redis-modules' });
+  private readonly modules = new Map<string, RedisModule>();
 
   constructor(private cacheManager: CacheManager) {}
 
@@ -67,7 +67,7 @@ export class RedisModulesManager {
    */
   registerModule(module: RedisModule): void {
     this.modules.set(module.name, module);
-    this.logger.info({ module: module.name, version: module.version }, 'Registered Redis module');
+    this.logger.info('Registered Redis module', { module: module.name, version: module.version });
   }
 
   /**
@@ -85,9 +85,16 @@ export class RedisModulesManager {
   /**
    * Execute a raw Redis command
    */
-  private async executeCommand(command: string, ...args: any[]): Promise<any> {
-    // This would use the underlying Redis client
-    // For now, return a placeholder
+  async executeCommand(...commandParts: string[]): Promise<any> {
+    void this.cacheManager;
+    const [command, ...args] = commandParts;
+    if (!command) {
+      throw new Error('Redis module command is required');
+    }
+
+    void args;
+    // This should use the underlying Redis client.
+    // For now, return a placeholder.
     return null;
   }
 }
@@ -103,7 +110,7 @@ export class RediSearchManager {
    * Create a search index
    */
   async createIndex(index: SearchIndex): Promise<void> {
-    const command = ['FT.CREATE', index.name];
+    const command: string[] = ['FT.CREATE', index.name];
 
     // Add schema fields
     for (const field of index.schema.fields) {
@@ -113,7 +120,7 @@ export class RediSearchManager {
       if (field.options) {
         for (const [key, value] of Object.entries(field.options)) {
           command.push(key.toUpperCase());
-          command.push(value);
+          command.push(String(value));
         }
       }
     }
@@ -150,7 +157,7 @@ export class RediSearchManager {
       return?: string[];
     }
   ): Promise<any> {
-    const command = ['FT.SEARCH', indexName, query];
+    const command: string[] = ['FT.SEARCH', indexName, query];
 
     if (options?.limit) {
       command.push('LIMIT', options.limit[0].toString(), options.limit[1].toString());
@@ -176,10 +183,10 @@ export class RediSearchManager {
    */
   async addDocuments(documents: Array<{ id: string; fields: Record<string, any> }>): Promise<void> {
     for (const doc of documents) {
-      const command = ['FT.ADD', doc.id];
+      const command: string[] = ['FT.ADD', doc.id];
 
       for (const [field, value] of Object.entries(doc.fields)) {
-        command.push(field, value);
+        command.push(field, String(value));
       }
 
       await this.modulesManager.executeCommand(...command);
@@ -250,7 +257,7 @@ export class RedisJSONManager {
    * Perform JSON operations (increment, etc.)
    */
   async increment(key: string, path: string, value: number = 1): Promise<number> {
-    return this.modulesManager.executeCommand('JSON.NUMINCRBY', key, path, value);
+    return this.modulesManager.executeCommand('JSON.NUMINCRBY', key, path, value.toString());
   }
 
   /**
@@ -270,7 +277,7 @@ export class RedisJSONManager {
       'JSON.ARRINSERT',
       key,
       path,
-      index,
+      index.toString(),
       ...values.map((v) => JSON.stringify(v))
     );
   }
