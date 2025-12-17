@@ -4,6 +4,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { getLogger, type IAdvancedLogger } from '@kitiumai/logger';
 import {
   CacheKeyConfig,
   CacheOptions,
@@ -29,6 +30,7 @@ export class CacheManager extends EventEmitter implements ICacheManager {
   private invalidationListeners: Set<(event: InvalidationEvent) => void> = new Set();
   private memoryCache: InMemoryCache;
   private pending: Map<string, Promise<unknown>> = new Map();
+  private logger: ReturnType<typeof getLogger>;
 
   constructor(
     redisConfig: RedisConfig,
@@ -44,6 +46,11 @@ export class CacheManager extends EventEmitter implements ICacheManager {
     instrumentation?: InstrumentationHooks
   ) {
     super();
+    const baseLogger = getLogger();
+    this.logger =
+      'child' in baseLogger && typeof baseLogger.child === 'function'
+        ? (baseLogger as IAdvancedLogger).child({ component: 'cache-manager' })
+        : baseLogger;
     this.ttlConfig = ttlConfig;
     this.keyManager = new CacheKeyManager(keyConfig);
     this.memoryCache = new InMemoryCache(memoryConfig);
@@ -367,7 +374,11 @@ export class CacheManager extends EventEmitter implements ICacheManager {
         callback(event);
       } catch (error) {
         // Log error but don't throw
-        console.error('Error in invalidation listener:', error);
+        if (error instanceof Error) {
+          this.logger.error('Error in invalidation listener', { invalidationEvent: event }, error);
+        } else {
+          this.logger.error('Error in invalidation listener', { invalidationEvent: event, error });
+        }
       }
     });
 

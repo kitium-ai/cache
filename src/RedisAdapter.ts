@@ -5,6 +5,9 @@
 
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from 'crypto';
 import { gzipSync, gunzipSync } from 'zlib';
+import { InternalError, toKitiumError } from '@kitiumai/error';
+import { getLogger, type IAdvancedLogger } from '@kitiumai/logger';
+import { sleep, timeout } from '@kitiumai/utils-ts';
 import {
   CacheOptions,
   CacheStats,
@@ -34,6 +37,7 @@ export class RedisAdapter implements ICacheAdapter {
   private instrumentation?: InstrumentationHooks;
   private statsPersistKey: string;
   private encryptionKey?: Buffer;
+  private logger: ReturnType<typeof getLogger>;
 
   constructor(
     redisConfig: RedisConfig,
@@ -42,6 +46,11 @@ export class RedisAdapter implements ICacheAdapter {
     defaultTTL: number = 3600,
     instrumentation?: InstrumentationHooks
   ) {
+    const baseLogger = getLogger();
+    this.logger =
+      'child' in baseLogger && typeof baseLogger.child === 'function'
+        ? (baseLogger as IAdvancedLogger).child({ component: 'redis-adapter' })
+        : baseLogger;
     this.redisConfig = redisConfig;
     if (redisConfig.commandTimeoutMs !== undefined) {
       this.commandTimeoutMs = redisConfig.commandTimeoutMs;
@@ -68,9 +77,16 @@ export class RedisAdapter implements ICacheAdapter {
       this.isConnected = true;
       await this.reconcileTags();
     } catch (error) {
-      throw new Error(
-        `Failed to connect to Redis: ${error instanceof Error ? error.message : String(error)}`
-      );
+      const kitiumError = toKitiumError(error, {
+        code: 'cache/redis_connection_failed',
+        message: 'Failed to connect to Redis',
+        severity: 'error',
+        kind: 'dependency',
+        retryable: true,
+        source: '@kitiumai/cache',
+      });
+      this.logger.error('Failed to connect to Redis', kitiumError);
+      throw kitiumError;
     }
   }
 
@@ -83,9 +99,16 @@ export class RedisAdapter implements ICacheAdapter {
       await this.pool.drain();
       this.isConnected = false;
     } catch (error) {
-      throw new Error(
-        `Failed to disconnect from Redis: ${error instanceof Error ? error.message : String(error)}`
-      );
+      const kitiumError = toKitiumError(error, {
+        code: 'cache/redis_disconnect_failed',
+        message: 'Failed to disconnect from Redis',
+        severity: 'error',
+        kind: 'dependency',
+        retryable: false,
+        source: '@kitiumai/cache',
+      });
+      this.logger.error('Failed to disconnect from Redis', kitiumError);
+      throw kitiumError;
     }
   }
 
@@ -126,9 +149,16 @@ export class RedisAdapter implements ICacheAdapter {
       }
     } catch (error) {
       this.stats.misses++;
-      throw new Error(
-        `Failed to get key ${key}: ${error instanceof Error ? error.message : String(error)}`
-      );
+      const kitiumError = toKitiumError(error, {
+        code: 'cache/get_failed',
+        message: `Failed to get key ${key}`,
+        severity: 'error',
+        kind: 'dependency',
+        retryable: true,
+        source: '@kitiumai/cache',
+      });
+      this.logger.error(`Failed to get key ${key}`, kitiumError);
+      throw kitiumError;
     } finally {
       this.pool.releaseConnection(client);
       this.updateStats();
@@ -137,7 +167,14 @@ export class RedisAdapter implements ICacheAdapter {
 
   async set<T>(key: string, value: T, options?: CacheOptions): Promise<void> {
     if (!this.keyManager.isValidKey(key)) {
-      throw new Error(`Invalid cache key: ${key}`);
+      throw new InternalError({
+        code: 'cache/invalid_key',
+        message: `Invalid cache key: ${key}`,
+        severity: 'error',
+        kind: 'validation',
+        retryable: false,
+        source: '@kitiumai/cache',
+      });
     }
 
     const client = await this.pool.getConnection();
@@ -169,9 +206,16 @@ export class RedisAdapter implements ICacheAdapter {
       this.stats.itemCount++;
       this.updateStats();
     } catch (error) {
-      throw new Error(
-        `Failed to set key ${key}: ${error instanceof Error ? error.message : String(error)}`
-      );
+      const kitiumError = toKitiumError(error, {
+        code: 'cache/set_failed',
+        message: `Failed to set key ${key}`,
+        severity: 'error',
+        kind: 'dependency',
+        retryable: true,
+        source: '@kitiumai/cache',
+      });
+      this.logger.error(`Failed to set key ${key}`, kitiumError);
+      throw kitiumError;
     } finally {
       this.pool.releaseConnection(client);
     }
@@ -190,9 +234,16 @@ export class RedisAdapter implements ICacheAdapter {
       }
       return false;
     } catch (error) {
-      throw new Error(
-        `Failed to delete key ${key}: ${error instanceof Error ? error.message : String(error)}`
-      );
+      const kitiumError = toKitiumError(error, {
+        code: 'cache/delete_failed',
+        message: `Failed to delete key ${key}`,
+        severity: 'error',
+        kind: 'dependency',
+        retryable: true,
+        source: '@kitiumai/cache',
+      });
+      this.logger.error(`Failed to delete key ${key}`, kitiumError);
+      throw kitiumError;
     } finally {
       this.pool.releaseConnection(client);
     }
@@ -204,9 +255,16 @@ export class RedisAdapter implements ICacheAdapter {
       const result = await this.runCommand('exists', () => client.exists(key));
       return result > 0;
     } catch (error) {
-      throw new Error(
-        `Failed to check key existence: ${error instanceof Error ? error.message : String(error)}`
-      );
+      const kitiumError = toKitiumError(error, {
+        code: 'cache/exists_failed',
+        message: 'Failed to check key existence',
+        severity: 'error',
+        kind: 'dependency',
+        retryable: true,
+        source: '@kitiumai/cache',
+      });
+      this.logger.error('Failed to check key existence', kitiumError);
+      throw kitiumError;
     } finally {
       this.pool.releaseConnection(client);
     }
@@ -228,9 +286,16 @@ export class RedisAdapter implements ICacheAdapter {
       this.keyManager.clearTags();
       this.updateStats();
     } catch (error) {
-      throw new Error(
-        `Failed to clear cache: ${error instanceof Error ? error.message : String(error)}`
-      );
+      const kitiumError = toKitiumError(error, {
+        code: 'cache/clear_failed',
+        message: 'Failed to clear cache',
+        severity: 'error',
+        kind: 'dependency',
+        retryable: true,
+        source: '@kitiumai/cache',
+      });
+      this.logger.error('Failed to clear cache', kitiumError);
+      throw kitiumError;
     } finally {
       this.pool.releaseConnection(client);
     }
@@ -245,9 +310,16 @@ export class RedisAdapter implements ICacheAdapter {
       const keys = await this.scanKeys(client, searchPattern);
       return keys;
     } catch (error) {
-      throw new Error(
-        `Failed to get keys: ${error instanceof Error ? error.message : String(error)}`
-      );
+      const kitiumError = toKitiumError(error, {
+        code: 'cache/get_keys_failed',
+        message: 'Failed to get keys',
+        severity: 'error',
+        kind: 'dependency',
+        retryable: true,
+        source: '@kitiumai/cache',
+      });
+      this.logger.error('Failed to get keys', kitiumError);
+      throw kitiumError;
     } finally {
       this.pool.releaseConnection(client);
     }
@@ -268,9 +340,16 @@ export class RedisAdapter implements ICacheAdapter {
 
       return keys.length;
     } catch (error) {
-      throw new Error(
-        `Failed to invalidate pattern: ${error instanceof Error ? error.message : String(error)}`
-      );
+      const kitiumError = toKitiumError(error, {
+        code: 'cache/invalidate_pattern_failed',
+        message: 'Failed to invalidate pattern',
+        severity: 'error',
+        kind: 'dependency',
+        retryable: true,
+        source: '@kitiumai/cache',
+      });
+      this.logger.error('Failed to invalidate pattern', kitiumError);
+      throw kitiumError;
     } finally {
       this.pool.releaseConnection(client);
     }
@@ -298,9 +377,16 @@ export class RedisAdapter implements ICacheAdapter {
 
       return keysToDelete.size;
     } catch (error) {
-      throw new Error(
-        `Failed to invalidate by tags: ${error instanceof Error ? error.message : String(error)}`
-      );
+      const kitiumError = toKitiumError(error, {
+        code: 'cache/invalidate_tags_failed',
+        message: 'Failed to invalidate by tags',
+        severity: 'error',
+        kind: 'dependency',
+        retryable: true,
+        source: '@kitiumai/cache',
+      });
+      this.logger.error('Failed to invalidate by tags', kitiumError);
+      throw kitiumError;
     } finally {
       this.pool.releaseConnection(client);
     }
@@ -354,6 +440,8 @@ export class RedisAdapter implements ICacheAdapter {
 
   private async executeWithRetry<T>(fn: () => Promise<T>): Promise<T> {
     const policy = this.redisConfig.retryPolicy ?? { maxAttempts: 1, backoffMs: 0, jitterMs: 0 };
+    
+    // Use manual retry logic since utils-ts retry has different interface
     let attempt = 0;
     let lastError: unknown;
 
@@ -367,11 +455,19 @@ export class RedisAdapter implements ICacheAdapter {
           break;
         }
         const jitter = policy.jitterMs ? Math.floor(Math.random() * policy.jitterMs) : 0;
-        await new Promise((resolve) => setTimeout(resolve, policy.backoffMs * attempt + jitter));
+        const delay = policy.backoffMs * attempt + jitter;
+        await sleep(delay);
       }
     }
 
-    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+    throw toKitiumError(lastError, {
+      code: 'cache/retry_exhausted',
+      message: 'Redis operation failed after retries',
+      severity: 'error',
+      kind: 'dependency',
+      retryable: false,
+      source: '@kitiumai/cache',
+    });
   }
 
   private async withTimeout<T>(promise: Promise<T>): Promise<T> {
@@ -379,12 +475,18 @@ export class RedisAdapter implements ICacheAdapter {
       return promise;
     }
 
-    return Promise.race([
-      promise,
-      new Promise<T>((_, reject) =>
-        setTimeout(() => reject(new Error('Redis command timed out')), this.commandTimeoutMs)
-      ),
-    ]);
+    try {
+      return await timeout(promise, this.commandTimeoutMs, 'Redis command timed out');
+    } catch (error) {
+      throw toKitiumError(error, {
+        code: 'cache/command_timeout',
+        message: 'Redis command timed out',
+        severity: 'error',
+        kind: 'dependency',
+        retryable: true,
+        source: '@kitiumai/cache',
+      });
+    }
   }
 
   private encodeValue<T>(value: T, options?: CacheOptions): string {

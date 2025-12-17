@@ -4,6 +4,9 @@
  */
 
 import { createClient, RedisClientType } from 'redis';
+import { DependencyError, InternalError, ValidationError } from '@kitiumai/error';
+import { getLogger, type IAdvancedLogger } from '@kitiumai/logger';
+import { sleep } from '@kitiumai/utils-ts';
 import { ConnectionPoolConfig, RedisConfig } from './types';
 
 export class RedisConnectionPool {
@@ -18,18 +21,38 @@ export class RedisConnectionPool {
     reject: (error: Error) => void;
     timeout: NodeJS.Timeout;
   }> = [];
+  private readonly logger: ReturnType<typeof getLogger>;
 
   constructor(redisConfig: RedisConfig, poolConfig: ConnectionPoolConfig) {
+    const baseLogger = getLogger();
+    this.logger =
+      'child' in baseLogger && typeof baseLogger.child === 'function'
+        ? (baseLogger as IAdvancedLogger).child({ component: 'redis-connection-pool' })
+        : baseLogger;
     this.redisConfig = redisConfig;
     this.config = poolConfig;
 
     // Validate configuration
     if (poolConfig.minConnections > poolConfig.maxConnections) {
-      throw new Error('minConnections cannot be greater than maxConnections');
+      throw new ValidationError({
+        code: 'cache/invalid_pool_config',
+        message: 'minConnections cannot be greater than maxConnections',
+        severity: 'error',
+        kind: 'validation',
+        retryable: false,
+        source: '@kitiumai/cache',
+      });
     }
 
     if (poolConfig.minConnections < 1) {
-      throw new Error('minConnections must be at least 1');
+      throw new ValidationError({
+        code: 'cache/invalid_pool_config',
+        message: 'minConnections must be at least 1',
+        severity: 'error',
+        kind: 'validation',
+        retryable: false,
+        source: '@kitiumai/cache',
+      });
     }
   }
 
@@ -65,7 +88,14 @@ export class RedisConnectionPool {
    */
   async getConnection(): Promise<RedisClientType> {
     if (!this.isInitialized) {
-      throw new Error('Connection pool not initialized');
+      throw new InternalError({
+        code: 'cache/pool_not_initialized',
+        message: 'Connection pool not initialized',
+        severity: 'error',
+        kind: 'internal',
+        retryable: false,
+        source: '@kitiumai/cache',
+      });
     }
 
     // Try to get from available connections
@@ -134,7 +164,7 @@ export class RedisConnectionPool {
     // Wait for any in-use connections to be released
     let attempts = 0;
     while (this.inUseConnections.size > 0 && attempts < 30) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await sleep(100);
       attempts++;
     }
 
@@ -195,6 +225,7 @@ export class RedisConnectionPool {
       await client.connect();
       return client as any;
     } catch (error) {
+      this.logger.error('Failed to create Redis connection', error instanceof Error ? error : undefined);
       client.quit();
       throw error;
     }
@@ -276,7 +307,16 @@ export class RedisConnectionPool {
         if (idx >= 0) {
           this.waitQueue.splice(idx, 1);
         }
-        reject(new Error(`Failed to acquire connection within ${this.config.acquireTimeoutMs}ms`));
+        reject(
+          new DependencyError({
+            code: 'cache/connection_timeout',
+            message: `Failed to acquire connection within ${this.config.acquireTimeoutMs}ms`,
+            severity: 'error',
+            kind: 'dependency',
+            retryable: true,
+            source: '@kitiumai/cache',
+          })
+        );
       }, this.config.acquireTimeoutMs);
 
       this.waitQueue.push({ resolve, reject, timeout });

@@ -3,6 +3,7 @@
  * Handles cache key generation, validation, and management
  */
 
+import { isString } from '@kitiumai/utils-ts';
 import { CacheKeyConfig } from './types';
 
 export class CacheKeyManager {
@@ -163,7 +164,7 @@ export class CacheKeyManager {
    * Validate a key format
    */
   isValidKey(key: string): boolean {
-    if (!key || typeof key !== 'string') {
+    if (!isString(key) || key.length === 0) {
       return false;
     }
     // Keys should not contain null bytes

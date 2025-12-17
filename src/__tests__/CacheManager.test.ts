@@ -1,298 +1,319 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { CacheManager } from '../CacheManager';
-import { RedisConfig, ConnectionPoolConfig, CacheKeyConfig, TTLConfig } from '../types';
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Mock the Redis adapter
-vi.mock('../RedisAdapter');
+import { CacheManager } from "../CacheManager";
+import {
+  type CacheKeyConfig,
+  type ConnectionPoolConfig,
+  InvalidationStrategy,
+  type RedisConfig,
+  type TTLConfig,
+} from "../types";
 
-describe('CacheManager', () => {
+vi.mock("../RedisAdapter");
+
+const redisConfig: RedisConfig = {
+  host: "localhost",
+  port: 6379,
+};
+
+const poolConfig: ConnectionPoolConfig = {
+  maxConnections: 10,
+  minConnections: 2,
+  idleTimeoutMs: 30_000,
+  acquireTimeoutMs: 5_000,
+  validationIntervalMs: 10_000,
+};
+
+const keyConfig: CacheKeyConfig = {
+  prefix: "test",
+  separator: ":",
+  namespace: "cache",
+};
+
+const ttlConfig: TTLConfig = {
+  defaultTTL: 3600,
+  maxTTL: 86_400,
+  minTTL: 60,
+};
+
+const TEST_KEY = "test-key";
+const TEST_VALUE = "test-value";
+
+const createCacheManager = (): CacheManager =>
+  new CacheManager(redisConfig, poolConfig, keyConfig, ttlConfig);
+
+describe("CacheManager key manager access", () => {
+  it("provides access to key manager", () => {
+    const cacheManager = createCacheManager();
+    const keyManager = cacheManager.getKeyManager();
+    expect(keyManager).toBeDefined();
+
+    const key = keyManager.buildKey("user", "123");
+    expect(key).toBe("test:cache:user:123");
+  });
+});
+
+describe("CacheManager adapter access", () => {
+  it("provides access to underlying adapter", () => {
+    const cacheManager = createCacheManager();
+    expect(cacheManager.getAdapter()).toBeDefined();
+  });
+});
+
+describe("CacheManager TTL configuration", () => {
   let cacheManager: CacheManager;
-
-  const redisConfig: RedisConfig = {
-    host: 'localhost',
-    port: 6379,
-  };
-
-  const poolConfig: ConnectionPoolConfig = {
-    maxConnections: 10,
-    minConnections: 2,
-    idleTimeoutMs: 30000,
-    acquireTimeoutMs: 5000,
-    validationIntervalMs: 10000,
-  };
-
-  const keyConfig: CacheKeyConfig = {
-    prefix: 'test',
-    separator: ':',
-    namespace: 'cache',
-  };
-
-  const ttlConfig: TTLConfig = {
-    defaultTTL: 3600,
-    maxTTL: 86400,
-    minTTL: 60,
-  };
 
   beforeEach(() => {
     vi.clearAllMocks();
-    cacheManager = new CacheManager(redisConfig, poolConfig, keyConfig, ttlConfig);
+    cacheManager = createCacheManager();
   });
 
-  describe('Key Management', () => {
-    it('should provide access to key manager', () => {
-      const keyManager = cacheManager.getKeyManager();
-      expect(keyManager).toBeDefined();
+  it("uses default TTL when not specified", async () => {
+    const spy = vi.spyOn(cacheManager.getAdapter(), "set");
+    await cacheManager.set(TEST_KEY, TEST_VALUE, {});
 
-      const key = keyManager.buildKey('user', '123');
-      expect(key).toBe('test:cache:user:123');
-    });
+    const [, , options] = spy.mock.calls[0] ?? [];
+    expect(options?.ttl).toBe(ttlConfig.defaultTTL);
   });
 
-  describe('Adapter Access', () => {
-    it('should provide access to underlying adapter', () => {
-      const adapter = cacheManager.getAdapter();
-      expect(adapter).toBeDefined();
-    });
+  it("respects maximum TTL limit", async () => {
+    const spy = vi.spyOn(cacheManager.getAdapter(), "set");
+    await cacheManager.set(TEST_KEY, TEST_VALUE, { ttl: 999_999 });
+
+    const [, , options] = spy.mock.calls[0] ?? [];
+    expect(options?.ttl).toBeLessThanOrEqual(ttlConfig.maxTTL);
   });
 
-  describe('TTL Configuration', () => {
-    it('should use default TTL when not specified', async () => {
-      const spy = vi.spyOn(cacheManager.getAdapter(), 'set');
+  it("respects minimum TTL limit", async () => {
+    const spy = vi.spyOn(cacheManager.getAdapter(), "set");
+    await cacheManager.set(TEST_KEY, TEST_VALUE, { ttl: 10 });
 
-      await cacheManager.set('test-key', 'test-value', {});
-
-      expect(spy).toHaveBeenCalled();
-      const [, , options] = spy.mock.calls[0];
-      expect(options?.ttl).toBe(ttlConfig.defaultTTL);
-    });
-
-    it('should respect maximum TTL limit', async () => {
-      const spy = vi.spyOn(cacheManager.getAdapter(), 'set');
-
-      await cacheManager.set('test-key', 'test-value', { ttl: 999999 });
-
-      const [, , options] = spy.mock.calls[0];
-      expect(options?.ttl).toBeLessThanOrEqual(ttlConfig.maxTTL);
-    });
-
-    it('should respect minimum TTL limit', async () => {
-      const spy = vi.spyOn(cacheManager.getAdapter(), 'set');
-
-      await cacheManager.set('test-key', 'test-value', { ttl: 10 });
-
-      const [, , options] = spy.mock.calls[0];
-      expect(options?.ttl).toBeGreaterThanOrEqual(ttlConfig.minTTL);
-    });
-
-    it('should accept valid TTL within bounds', async () => {
-      const spy = vi.spyOn(cacheManager.getAdapter(), 'set');
-      const customTTL = 1800;
-
-      await cacheManager.set('test-key', 'test-value', { ttl: customTTL });
-
-      const [, , options] = spy.mock.calls[0];
-      expect(options?.ttl).toBe(customTTL);
-    });
+    const [, , options] = spy.mock.calls[0] ?? [];
+    expect(options?.ttl).toBeGreaterThanOrEqual(ttlConfig.minTTL);
   });
 
-  describe('Cache Operations', () => {
-    it('should set cache value', async () => {
-      const spy = vi.spyOn(cacheManager.getAdapter(), 'set').mockResolvedValue(undefined);
+  it("accepts valid TTL within bounds", async () => {
+    const spy = vi.spyOn(cacheManager.getAdapter(), "set");
+    const customTtl = 1800;
+    await cacheManager.set(TEST_KEY, TEST_VALUE, { ttl: customTtl });
 
-      await cacheManager.set('user:123', { name: 'John' });
+    const [, , options] = spy.mock.calls[0] ?? [];
+    expect(options?.ttl).toBe(customTtl);
+  });
+});
 
-      expect(spy).toHaveBeenCalled();
-      const [key] = spy.mock.calls[0];
-      expect(key).toContain('user:123');
-    });
+describe("CacheManager cache operations", () => {
+  let cacheManager: CacheManager;
 
-    it('should get cache value', async () => {
-      const spy = vi.spyOn(cacheManager.getAdapter(), 'get').mockResolvedValue({ name: 'John' });
-
-      const result = await cacheManager.get('user:123');
-
-      expect(spy).toHaveBeenCalled();
-      expect(result).toEqual({ name: 'John' });
-    });
-
-    it('should delete cache key', async () => {
-      const spy = vi.spyOn(cacheManager.getAdapter(), 'delete').mockResolvedValue(true);
-
-      const result = await cacheManager.delete('user:123');
-
-      expect(result).toBe(true);
-      expect(spy).toHaveBeenCalled();
-    });
-
-    it('should check key existence', async () => {
-      const spy = vi.spyOn(cacheManager.getAdapter(), 'exists').mockResolvedValue(true);
-
-      const result = await cacheManager.exists('user:123');
-
-      expect(result).toBe(true);
-      expect(spy).toHaveBeenCalled();
-    });
-
-    it('should clear entire cache', async () => {
-      const spy = vi.spyOn(cacheManager.getAdapter(), 'clear').mockResolvedValue(undefined);
-
-      await cacheManager.clear();
-
-      expect(spy).toHaveBeenCalled();
-    });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    cacheManager = createCacheManager();
   });
 
-  describe('Get or Set Operation', () => {
-    it('should return cached value if exists', async () => {
-      const mockValue = { id: 1, name: 'Test' };
-      vi.spyOn(cacheManager.getAdapter(), 'get').mockResolvedValue(mockValue);
+  it("sets cache value", async () => {
+    const spy = vi.spyOn(cacheManager.getAdapter(), "set").mockResolvedValue();
+    await cacheManager.set("user:123", { name: "John" });
 
-      const fn = vi.fn().mockResolvedValue({ id: 2, name: 'Computed' });
-      const result = await cacheManager.getOrSet('test-key', fn);
-
-      expect(result).toEqual(mockValue);
-      expect(fn).not.toHaveBeenCalled();
-    });
-
-    it('should compute and cache if not exists', async () => {
-      const mockValue = { id: 1, name: 'Test' };
-      vi.spyOn(cacheManager.getAdapter(), 'get').mockResolvedValue(null);
-      vi.spyOn(cacheManager.getAdapter(), 'set').mockResolvedValue(undefined);
-
-      const fn = vi.fn().mockResolvedValue(mockValue);
-      const result = await cacheManager.getOrSet('test-key', fn);
-
-      expect(result).toEqual(mockValue);
-      expect(fn).toHaveBeenCalled();
-    });
+    const [key] = spy.mock.calls[0] ?? [];
+    expect(key).toContain("user:123");
   });
 
-  describe('Bulk Operations', () => {
-    it('should delete multiple keys', async () => {
-      const spy = vi.spyOn(cacheManager.getAdapter(), 'delete').mockResolvedValue(true);
+  it("gets cache value", async () => {
+    vi.spyOn(cacheManager.getAdapter(), "get").mockResolvedValue({ name: "John" });
+    const value = await cacheManager.get("user:123");
 
-      const count = await cacheManager.deleteMultiple(['key1', 'key2', 'key3']);
-
-      expect(count).toBe(3);
-      expect(spy).toHaveBeenCalledTimes(3);
-    });
-
-    it('should warmup cache with multiple entries', async () => {
-      const spy = vi.spyOn(cacheManager.getAdapter(), 'set').mockResolvedValue(undefined);
-
-      const data: Record<string, unknown> = {
-        'user:1': { id: 1, name: 'User 1' },
-        'user:2': { id: 2, name: 'User 2' },
-      };
-
-      await cacheManager.warmup(data);
-
-      expect(spy).toHaveBeenCalledTimes(2);
-    });
-
-    it('should get keys by pattern', async () => {
-      const spy = vi
-        .spyOn(cacheManager.getAdapter(), 'getKeys')
-        .mockResolvedValue(['test:cache:user:1', 'test:cache:user:2']);
-
-      const keys = await cacheManager.getKeys('user:*');
-
-      expect(keys).toHaveLength(2);
-      expect(spy).toHaveBeenCalled();
-    });
+    expect(value).toEqual({ name: "John" });
   });
 
-  describe('Invalidation', () => {
-    it('should invalidate by pattern', async () => {
-      const spy = vi.spyOn(cacheManager.getAdapter(), 'invalidatePattern').mockResolvedValue(5);
-
-      const count = await cacheManager.invalidatePattern('user:*');
-
-      expect(count).toBe(5);
-      expect(spy).toHaveBeenCalledWith('user:*');
-    });
-
-    it('should invalidate by tags', async () => {
-      const spy = vi.spyOn(cacheManager.getAdapter(), 'invalidateByTags').mockResolvedValue(10);
-
-      const count = await cacheManager.invalidateByTags(['users', 'active']);
-
-      expect(count).toBe(10);
-      expect(spy).toHaveBeenCalledWith(['users', 'active']);
-    });
-
-    it('should register invalidation listener', (done) => {
-      const listener = vi.fn();
-      cacheManager.onInvalidation(listener);
-
-      // Mock the invalidatePattern method to return a promise
-      vi.spyOn(cacheManager.getAdapter(), 'invalidatePattern').mockResolvedValue(2);
-
-      cacheManager
-        .getAdapter()
-        .invalidatePattern('test:*')
-        .then(() => {
-          // Listener should be called
-          setTimeout(() => {
-            done();
-          }, 100);
-        });
-    });
-
-    it('should unregister invalidation listener', () => {
-      const listener = vi.fn();
-      cacheManager.onInvalidation(listener);
-      cacheManager.offInvalidation(listener);
-
-      // Verify listener is removed (would need to check internal state)
-    });
+  it("deletes cache key", async () => {
+    vi.spyOn(cacheManager.getAdapter(), "delete").mockResolvedValue(true);
+    const isDeleted = await cacheManager.delete("user:123");
+    expect(isDeleted).toBe(true);
   });
 
-  describe('Health and Statistics', () => {
-    it('should perform health check', async () => {
-      const spy = vi.spyOn(cacheManager.getAdapter(), 'healthCheck').mockResolvedValue(true);
-
-      const result = await cacheManager.healthCheck();
-
-      expect(result).toBe(true);
-      expect(spy).toHaveBeenCalled();
-    });
-
-    it('should get cache statistics', async () => {
-      const mockStats = {
-        hits: 100,
-        misses: 20,
-        evictions: 5,
-        sizeBytes: 10000,
-        itemCount: 50,
-        hitRate: 83.33,
-        lastUpdated: Date.now(),
-      };
-
-      const spy = vi.spyOn(cacheManager.getAdapter(), 'getStats').mockResolvedValue(mockStats);
-
-      const stats = await cacheManager.getStats();
-
-      expect(stats).toEqual(mockStats);
-      expect(spy).toHaveBeenCalled();
-    });
+  it("checks key existence", async () => {
+    vi.spyOn(cacheManager.getAdapter(), "exists").mockResolvedValue(true);
+    const hasKey = await cacheManager.exists("user:123");
+    expect(hasKey).toBe(true);
   });
 
-  describe('Connection Lifecycle', () => {
-    it('should connect', async () => {
-      const spy = vi.spyOn(cacheManager.getAdapter(), 'connect').mockResolvedValue(undefined);
+  it("clears entire cache", async () => {
+    const spy = vi.spyOn(cacheManager.getAdapter(), "clear").mockResolvedValue();
+    await cacheManager.clear();
+    expect(spy).toHaveBeenCalled();
+  });
+});
 
-      await cacheManager.connect();
+describe("CacheManager getOrSet", () => {
+  let cacheManager: CacheManager;
 
-      expect(spy).toHaveBeenCalled();
+  beforeEach(() => {
+    vi.clearAllMocks();
+    cacheManager = createCacheManager();
+  });
+
+  it("returns cached value if it exists", async () => {
+    const cachedValue = { id: 1, name: "Test" };
+    vi.spyOn(cacheManager.getAdapter(), "get").mockResolvedValue(cachedValue);
+
+    const compute = vi.fn().mockResolvedValue({ id: 2, name: "Computed" });
+    const value = await cacheManager.getOrSet(TEST_KEY, compute);
+
+    expect(value).toEqual(cachedValue);
+    expect(compute).not.toHaveBeenCalled();
+  });
+
+  it("computes and caches if it does not exist", async () => {
+    const computedValue = { id: 1, name: "Test" };
+    vi.spyOn(cacheManager.getAdapter(), "get").mockResolvedValue(null);
+    vi.spyOn(cacheManager.getAdapter(), "set").mockResolvedValue();
+
+    const compute = vi.fn().mockResolvedValue(computedValue);
+    const value = await cacheManager.getOrSet(TEST_KEY, compute);
+
+    expect(value).toEqual(computedValue);
+    expect(compute).toHaveBeenCalled();
+  });
+});
+
+describe("CacheManager bulk operations", () => {
+  let cacheManager: CacheManager;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    cacheManager = createCacheManager();
+  });
+
+  it("deletes multiple keys", async () => {
+    vi.spyOn(cacheManager.getAdapter(), "delete").mockResolvedValue(true);
+    const count = await cacheManager.deleteMultiple(["key1", "key2", "key3"]);
+    expect(count).toBe(3);
+  });
+
+  it("warms up cache with multiple entries", async () => {
+    const spy = vi.spyOn(cacheManager.getAdapter(), "set").mockResolvedValue();
+    await cacheManager.warmup({
+      "user:1": { id: 1, name: "User 1" },
+      "user:2": { id: 2, name: "User 2" },
     });
 
-    it('should disconnect', async () => {
-      const spy = vi.spyOn(cacheManager.getAdapter(), 'disconnect').mockResolvedValue(undefined);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
 
-      await cacheManager.disconnect();
+  it("gets keys by pattern", async () => {
+    const spy = vi
+      .spyOn(cacheManager.getAdapter(), "getKeys")
+      .mockResolvedValue(["test:cache:user:1", "test:cache:user:2"]);
 
-      expect(spy).toHaveBeenCalled();
-    });
+    const keys = await cacheManager.getKeys("user:*");
+    expect(keys).toHaveLength(2);
+    expect(spy).toHaveBeenCalled();
+  });
+});
+
+describe("CacheManager invalidation", () => {
+  let cacheManager: CacheManager;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    cacheManager = createCacheManager();
+  });
+
+  it("invalidates by pattern", async () => {
+    const spy = vi
+      .spyOn(cacheManager.getAdapter(), "invalidatePattern")
+      .mockResolvedValue(5);
+
+    const count = await cacheManager.invalidatePattern("user:*");
+    expect(count).toBe(5);
+    expect(spy).toHaveBeenCalledWith("user:*");
+  });
+
+  it("invalidates by tags", async () => {
+    const spy = vi
+      .spyOn(cacheManager.getAdapter(), "invalidateByTags")
+      .mockResolvedValue(10);
+
+    const count = await cacheManager.invalidateByTags(["users", "active"]);
+    expect(count).toBe(10);
+    expect(spy).toHaveBeenCalledWith(["users", "active"]);
+  });
+
+  it("registers invalidation listener", async () => {
+    const listener = vi.fn();
+    cacheManager.onInvalidation(listener);
+
+    vi.spyOn(cacheManager.getAdapter(), "invalidatePattern").mockResolvedValue(2);
+
+    await cacheManager.invalidatePattern("test:*");
+
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({ strategy: InvalidationStrategy.PATTERN }),
+    );
+  });
+
+  it("unregisters invalidation listener", async () => {
+    const listener = vi.fn();
+    cacheManager.onInvalidation(listener);
+    cacheManager.offInvalidation(listener);
+
+    vi.spyOn(cacheManager.getAdapter(), "invalidatePattern").mockResolvedValue(2);
+    await cacheManager.invalidatePattern("test:*");
+
+    expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+describe("CacheManager health and statistics", () => {
+  let cacheManager: CacheManager;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    cacheManager = createCacheManager();
+  });
+
+  it("performs health check", async () => {
+    vi.spyOn(cacheManager.getAdapter(), "healthCheck").mockResolvedValue(true);
+    const isHealthy = await cacheManager.healthCheck();
+    expect(isHealthy).toBe(true);
+  });
+
+  it("gets cache statistics", async () => {
+    const mockStats = {
+      hits: 100,
+      misses: 20,
+      evictions: 5,
+      sizeBytes: 10_000,
+      itemCount: 50,
+      hitRate: 83.33,
+      lastUpdated: Date.now(),
+    };
+
+    const spy = vi.spyOn(cacheManager.getAdapter(), "getStats").mockResolvedValue(mockStats);
+    const stats = await cacheManager.getStats();
+
+    expect(stats).toEqual(mockStats);
+    expect(spy).toHaveBeenCalled();
+  });
+});
+
+describe("CacheManager connection lifecycle", () => {
+  let cacheManager: CacheManager;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    cacheManager = createCacheManager();
+  });
+
+  it("connects", async () => {
+    const spy = vi.spyOn(cacheManager.getAdapter(), "connect").mockResolvedValue();
+    await cacheManager.connect();
+    expect(spy).toHaveBeenCalled();
+  });
+
+  it("disconnects", async () => {
+    const spy = vi.spyOn(cacheManager.getAdapter(), "disconnect").mockResolvedValue();
+    await cacheManager.disconnect();
+    expect(spy).toHaveBeenCalled();
   });
 });
